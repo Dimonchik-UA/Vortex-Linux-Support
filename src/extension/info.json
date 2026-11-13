@@ -1,0 +1,7 @@
+{
+  "id": "ovls-json-ipc-v2",
+  "name": "OVLS JSON IPC v2",
+  "version": "0.1.0",
+  "author": "OVLS",
+  "description": "Stage 9 reliable JSON IPC prototype — per-request files, separate directories"
+}
