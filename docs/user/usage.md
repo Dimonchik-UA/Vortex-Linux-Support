@@ -32,7 +32,12 @@ OVLS Manager provides four actions:
 
 ### Install / Update
 
-Use this action to (re)install the OVLS Extension, NXM handler, and shortcuts into your Proton prefix. OVLS Manager will:
+Use this action to (re)install the OVLS Extension, NXM handler, and shortcuts into your Proton prefix. OVLS Manager may check GitHub Releases for updates:
+- If you decline the GitHub update, Manager can continue with a normal update from the already installed copy.
+- If the GitHub update check is unavailable (for example, offline), Manager can use the normal update path from the already installed copy.
+- If you confirm the GitHub update but download, SHA-256 verification, preparation, or installation fails, Manager reports the error; there is no automatic fallback to the normal update.
+
+OVLS Manager will:
 
 1. Check that your prefix is set and contains `Vortex.exe`.
 2. Check that OVLS is installed in `~/.local/share/ovls/`.
@@ -53,13 +58,13 @@ Use this action to check the health of your OVLS installation. Verify checks:
 
 ### Uninstall
 
-Use this action to remove OVLS components from your prefix. Uninstall removes only OVLS-owned files:
+Use this action to remove OVLS components. Uninstall removes only OVLS-owned files:
 
-- The Vortex Extension (`info.json` and `index.js` from the plugin directory)
+- The installed OVLS Extension from the Vortex plugin directory in the selected prefix (only Extension files owned by OVLS: `info.json` and `index.js`)
 - The NXM handler
 - Desktop shortcuts
 
-Vortex, mods, staging folders, user settings, and `backups/` in `~/.local/share/ovls` are **not** removed.
+Vortex, its prefix, user mods, staging folders, user settings, and `backups/` in `~/.local/share/ovls` are **not** removed.
 
 After uninstalling, OVLS Manager closes because its installed copy is gone. To reinstall, run `bash install.sh install` from the `OVLS Installer` folder.
 

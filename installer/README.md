@@ -66,7 +66,10 @@ Vortex is launched through Proton-GE by default (preferring "latest" version). I
 3. Run `install.sh` and choose **Update**.
 4. The update installs code from the new package into the existing installation.
 
-Alternatively, use the OVLS Manager from the application menu (Install / Update). This updates only the already installed copy; it does not download new code.
+Alternatively, use the OVLS Manager from the application menu (Install / Update). It may check GitHub Releases for updates:
+- If you decline the GitHub update, Manager can continue with a normal update from the already installed copy.
+- If the GitHub update check is unavailable (for example, offline), Manager can use the normal update path from the already installed copy.
+- If you confirm the GitHub update but download, SHA-256 verification, preparation, or installation fails, Manager reports the error; there is no automatic fallback to the normal update.
 
 ## Verify installation
 

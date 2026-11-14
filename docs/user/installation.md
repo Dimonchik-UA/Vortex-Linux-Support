@@ -110,7 +110,10 @@ To update OVLS to a new version:
 
 The update installs code from the new package into your existing installation without touching your Vortex prefix, games, or mods.
 
-Alternatively, use the OVLS Manager from the application menu (Install / Update). This updates only the already installed copy; it does not download new code.
+Alternatively, use the OVLS Manager from the application menu (Install / Update). It may check GitHub Releases for updates:
+- If you decline the GitHub update, Manager can continue with a normal update from the already installed copy.
+- If the GitHub update check is unavailable (for example, offline), Manager can use the normal update path from the already installed copy.
+- If you confirm the GitHub update but download, SHA-256 verification, preparation, or installation fails, Manager reports the error; there is no automatic fallback to the normal update.
 
 ## Uninstalling OVLS
 
@@ -122,10 +125,10 @@ bash install.sh uninstall
 
 Or use the OVLS Manager from the application menu (Uninstall).
 
-Uninstall removes only OVLS-owned files: the installed copy, shortcuts, and NXM handler. It does **not** remove:
+Uninstall removes only OVLS-owned files: the installed copy, shortcuts, the NXM handler, and the installed OVLS Extension from the Vortex plugin directory in the selected prefix (only Extension files owned by OVLS). It does **not** remove:
 
 - Vortex and its prefix
-- Games, mods, and staging folders
+- Games, user mods, and staging folders
 - User settings
 - `backups/` in `~/.local/share/ovls`
 
