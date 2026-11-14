@@ -32,9 +32,11 @@ tool earlier (``.ovls-build`` marker).
 """
 
 import argparse
+import hashlib
 import json
 import shutil
 import sys
+import tarfile
 from datetime import datetime
 from pathlib import Path
 
@@ -132,6 +134,38 @@ def check(out):
     return problems
 
 
+def _sha256_file(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def write_archive(out, archive_path, checksum_path):
+    """Write distributable archive and SHA256SUMS, excluding the build marker.
+
+    The marker remains in the local build directory to protect it from accidental
+    overwrite, but must not be shipped in the release archive.
+    """
+    out = Path(out)
+    archive_path = Path(archive_path)
+    checksum_path = Path(checksum_path)
+    archive_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _filter(tarinfo):
+        if Path(tarinfo.name).name == MARKER:
+            return None
+        return tarinfo
+
+    with tarfile.open(archive_path, "w:gz") as tar:
+        tar.add(out, arcname=out.name, filter=_filter)
+
+    digest = _sha256_file(archive_path)
+    checksum_path.write_text(f"{digest}  {archive_path.name}\n", encoding="utf-8")
+    return digest
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -143,6 +177,11 @@ def main(argv=None):
         "--check",
         action="store_true",
         help="only verify an existing build folder",
+    )
+    parser.add_argument(
+        "--archive",
+        action="store_true",
+        help="after a successful build and check, create OVLS-Installer.tar.gz and SHA256SUMS next to the build folder",
     )
     args = parser.parse_args(argv)
 
@@ -158,6 +197,14 @@ def main(argv=None):
         for problem in problems:
             print(f"  {problem}", file=sys.stderr)
         return 1
+
+    if not args.check and args.archive:
+        archive_path = out.parent / "OVLS-Installer.tar.gz"
+        checksum_path = out.parent / "SHA256SUMS"
+        digest = write_archive(out, archive_path, checksum_path)
+        print(f"archive: {archive_path}")
+        print(f"sha256: {digest}")
+
     print("check: ok")
     return 0
 
