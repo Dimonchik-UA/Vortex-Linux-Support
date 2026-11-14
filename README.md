@@ -57,6 +57,25 @@ OVLS is distributed as a standalone installer folder (`OVLS Installer`). Downloa
 
 Do not run the installer from inside the source checkout unless you are developing OVLS. The standalone package is the supported distribution format.
 
+## Downloading and running the installer from GitHub Releases
+
+1. Open the project releases page: https://github.com/Dimonchik-UA/Vortex-Linux-Support/releases
+2. Download both release files:
+   - `OVLS-Installer.tar.gz`
+   - `SHA256SUMS`
+3. Before running the installer, verify the archive integrity using `SHA256SUMS` (it contains the expected SHA-256 checksum for `OVLS-Installer.tar.gz`). For example, from the directory where both files are located:
+   ```bash
+   sha256sum -c SHA256SUMS
+   ```
+4. Extract `OVLS-Installer.tar.gz`. The archive contains the `OVLS Installer` folder.
+5. Open the extracted `OVLS Installer` folder.
+6. To run the installer graphically, double-click `OVLS Installer.desktop` inside that folder. On SteamOS/KDE, if the shortcut is marked as untrusted, select **Trust and Launch** (as documented in `installer/README.md`). Keep `OVLS Installer.desktop`, `install.sh`, and the `ovls/` directory together in the same folder.
+7. If graphical launch is unavailable, open a terminal in the extracted `OVLS Installer` folder and run:
+   ```bash
+   bash install.sh
+   ```
+   (This is the documented package entry point; without arguments it starts the graphical installer UI when available. See `installer/README.md` and `installer/install.sh` for details and CLI options such as `install`, `update`, `verify`, and `uninstall`.)
+
 ## Documentation
 
 - **User documentation**: `docs/user/` — installation, usage, NXM, staging, environment matrix, diagnostics.
