@@ -220,18 +220,121 @@ def _copy_file(source, destination):
             os.unlink(temp_path)
 
 
+def _standalone_code_dir(root):
+    """Return standalone package code dir (ovls/) if this root uses that layout."""
+    candidate = Path(root) / layout.PACKAGE_CODE_TREE
+    if (candidate / "ovls.py").is_file():
+        return candidate
+    return None
+
+
+def _project_support_dir(root):
+    """Return project-layout support dir if present."""
+    root = Path(root)
+    # Try the layout of the running copy first, then known fallbacks.
+    for rel in (SUPPORT_TREE, Path("src") / "linux-support", Path("Development") / "Linux_Support"):
+        candidate = root / rel
+        if (candidate / "ovls.py").is_file():
+            return candidate
+    return None
+
+
+def _source_layout_kind(root):
+    root = Path(root).expanduser().resolve()
+    if _standalone_code_dir(root) is not None:
+        return "standalone"
+    if _project_support_dir(root) is not None:
+        return "project"
+    return "unknown"
+
+
+def _find_extension_dir(root):
+    """Locate the OVLS extension directory within a package/installed root."""
+    root = Path(root).expanduser().resolve()
+    candidates = []
+    standalone = _standalone_code_dir(root)
+    if standalone is not None:
+        candidates.append(standalone / "extension")
+    support = _project_support_dir(root)
+    if support is not None:
+        # Project layouts keep extension as sibling of support (src/extension)
+        # or inside the support dir in some layouts.
+        candidates.append(support.parent / "extension")
+        candidates.append(support / "extension")
+    # Generic fallbacks (including installed-copy layouts)
+    candidates.extend([
+        root / EXTENSION_TREE,
+        root / layout.PACKAGE_EXTENSION_TREE,
+        root / "src" / "extension",
+        root / "Development" / "Phase9_JSON_IPC" / "extension",
+        root / "ovls" / "extension",
+    ])
+    seen = set()
+    for candidate in candidates:
+        try:
+            key = str(candidate)
+        except Exception:
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        if candidate.is_dir() and (candidate / "index.js").is_file() and (candidate / "info.json").is_file():
+            return candidate
+    return None
+
+
 def _iter_sources(package_root):
+    """Yield (installed-relative-path, source-path) for all managed files.
+
+    Supports both project-layout and standalone-layout package roots. In both
+    cases relative paths match the layout of the installed/autonomous copy.
+    """
     root = Path(package_root).expanduser().resolve()
-    support = root / SUPPORT_TREE
-    if support.is_dir():
-        for path in sorted(support.rglob("*.py")):
-            if "__pycache__" not in path.parts:
+    kind = _source_layout_kind(root)
+
+    if kind == "standalone":
+        code_dir = _standalone_code_dir(root)
+        if code_dir is not None and code_dir.is_dir():
+            # Include all managed files under ovls/ (py, js, json, assets, etc.)
+            for path in sorted(code_dir.rglob("*")):
+                if "__pycache__" in path.parts or not path.is_file():
+                    continue
                 yield path.relative_to(root), path
-    extension = root / EXTENSION_TREE
-    if extension.is_dir():
-        for path in sorted(extension.rglob("*")):
-            if path.is_file() and "__pycache__" not in path.parts:
-                yield path.relative_to(root), path
+    elif kind == "project":
+        support = _project_support_dir(root)
+        if support is not None and support.is_dir():
+            for path in sorted(support.rglob("*.py")):
+                if "__pycache__" not in path.parts:
+                    yield path.relative_to(root), path
+            # Include non-Python assets inside support dir (e.g. assets/ovls.png)
+            for path in sorted(support.rglob("*")):
+                if "__pycache__" in path.parts or not path.is_file():
+                    continue
+                if path.suffix == ".py":
+                    continue
+                # Keep only known asset locations inside the support tree.
+                try:
+                    rel_under_support = path.relative_to(support)
+                except ValueError:
+                    continue
+                if rel_under_support.parts[:1] == (ICON_DIRNAME,):
+                    yield path.relative_to(root), path
+        extension = _find_extension_dir(root)
+        if extension is not None:
+            # Preserve the extension path relative to root when possible.
+            try:
+                ext_rel_base = extension.relative_to(root)
+            except ValueError:
+                ext_rel_base = EXTENSION_TREE
+            for path in sorted(extension.rglob("*")):
+                if path.is_file() and "__pycache__" not in path.parts:
+                    try:
+                        rel = ext_rel_base / path.relative_to(extension)
+                    except ValueError:
+                        rel = path.relative_to(root)
+                    yield rel, path
+
+    # Entry script and README live at the package root in both layouts.
     entry = root / ENTRY_SCRIPT
     if not entry.is_file():
         entry = root / "installer" / ENTRY_SCRIPT
@@ -240,9 +343,37 @@ def _iter_sources(package_root):
     readme = root / README_NAME
     if readme.is_file():
         yield Path(README_NAME), readme
-    icon = root / SUPPORT_TREE / ICON_DIRNAME / ICON_NAME
-    if icon.is_file():
-        yield Path(SUPPORT_TREE) / ICON_DIRNAME / ICON_NAME, icon
+
+
+def _validate_source_set(sources, package_root):
+    """Reject incomplete package sources that would produce a broken install.
+
+    Standalone release packages must include the full runnable code set and
+    extension; project-layout/minimal fixtures are accepted when they contain
+    the entry module so existing package workflows keep working.
+    """
+    if not sources:
+        raise ValueError(f"package has no files to install: {package_root}")
+    rels = {str(Path(rel)).replace("\\", "/") for rel, _ in sources}
+    has_ovls_py = any(r == "ovls.py" or r.endswith("/ovls.py") for r in rels)
+    py_count = sum(1 for r in rels if r.endswith(".py"))
+    has_extension = any(r.endswith("/extension/index.js") or r == "extension/index.js" for r in rels) and \
+        any(r.endswith("/extension/info.json") or r == "extension/info.json" for r in rels)
+
+    if not has_ovls_py:
+        raise ValueError(
+            f"package source is incomplete or unsupported layout: {package_root} "
+            f"(ovls.py={has_ovls_py}, py_files={py_count}, extension={has_extension})"
+        )
+
+    kind = _source_layout_kind(package_root)
+    if kind == "standalone":
+        # Standalone release must install a complete, runnable OVLS copy.
+        if py_count < 2 or not has_extension:
+            raise ValueError(
+                f"package source is incomplete or unsupported layout: {package_root} "
+                f"(ovls.py={has_ovls_py}, py_files={py_count}, extension={has_extension})"
+            )
 
 
 def _parse_manifest(text):
@@ -376,8 +507,7 @@ def copy_tree(package_root, stamp=None, dry_run=False):
     """Copy the package into ``app_root`` transactionally."""
     package = Path(package_root).expanduser().resolve()
     sources = list(_iter_sources(package))
-    if not sources:
-        raise ValueError(f"package has no files to install: {package}")
+    _validate_source_set(sources, package)
     root = app_root()
     root.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=".ovls-stage-", dir=str(root.parent)))
@@ -597,10 +727,13 @@ def install(package_root=None, prefix=None, dry_run=False, update=False):
         }
     else:
         copy_result = copy_tree(package, stamp=stamp, dry_run=dry_run)
+    package_ext = _find_extension_dir(package)
+    if package_ext is None:
+        package_ext = _find_extension_dir(root) or (package / EXTENSION_TREE)
     if dry_run:
         install_result = installer.install(
             str(target_prefix),
-            str(package / EXTENSION_TREE),
+            str(package_ext),
             dry_run=True,
             with_desktop=False,
         )
@@ -608,7 +741,7 @@ def install(package_root=None, prefix=None, dry_run=False, update=False):
             str(target_prefix),
             str(package),
             dry_run=True,
-            ovls_py=str(root / OVLS_PY),
+            ovls_py=str(installed_entry_point() if same else (root / OVLS_PY)),
         )
         return {
             "status": "ok",
@@ -620,17 +753,18 @@ def install(package_root=None, prefix=None, dry_run=False, update=False):
             "shortcuts": shortcuts.install(dry_run=True),
         }
 
+    installed_ext = _find_extension_dir(root) or package_ext
     try:
         install_result = installer.install(
             str(target_prefix),
-            str(root / EXTENSION_TREE),
+            str(installed_ext),
             backup_root=_backup_root(stamp),
             with_desktop=False,
         )
         handler = desktop.install_handler(
             str(target_prefix),
             str(package),
-            ovls_py=str(root / OVLS_PY),
+            ovls_py=str(installed_entry_point()),
         )
     except Exception:
         if not same:
@@ -669,6 +803,7 @@ def verify(prefix=None):
     wrapper = desktop._wrapper_path()
     wrapper_text = _read_text(wrapper) or ""
     autonomous = str(installed_entry_point()) in wrapper_text
+    extension_dir = _find_extension_dir(app_root()) or (app_root() / EXTENSION_TREE)
     if target_prefix is None:
         return {
             "status": "attention_required",
@@ -681,7 +816,7 @@ def verify(prefix=None):
     try:
         installed = installer.verify(
             str(target_prefix),
-            str(app_root() / EXTENSION_TREE),
+            str(extension_dir),
             with_desktop=True,
         )
     except (OSError, ValueError) as exc:
