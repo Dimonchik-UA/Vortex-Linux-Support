@@ -28,6 +28,7 @@ and shortcuts without copying the package over itself.
 
 import json
 import os
+import re
 import shutil
 import tempfile
 from datetime import datetime
@@ -55,6 +56,13 @@ OLD_VERSION = "VERSION.old"
 STEAM_COMPATDATA_APPID = "1712840"
 OVLS_PY = layout.OVLS_PY
 
+# Maximum number of backup snapshots to retain. Older backups are removed
+# automatically during copy_tree() to prevent unbounded disk usage.
+MAX_BACKUP_COUNT = 3
+
+# Regex matching the _stamp() format: YYYY-MM-DD_HHMMSS_ffffff
+_BACKUP_STAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{6}_\d{6}$")
+
 
 def app_root():
     return desktop.data_home() / APP_DIR
@@ -62,6 +70,37 @@ def app_root():
 
 def backups_root():
     return app_root() / BACKUP_DIRNAME
+
+
+def _cleanup_old_backups():
+    """Remove oldest OVLS backup snapshots beyond MAX_BACKUP_COUNT.
+
+    Only directories whose names match the _stamp() format
+    (YYYY-MM-DD_HHMMSS_ffffff) are considered. Directories with
+    arbitrary names, symlinks, and files are never touched.
+
+    Backup directories are sorted lexicographically by name (which equals
+    chronological order for the timestamp format). The newest
+    MAX_BACKUP_COUNT directories are kept; the rest are removed.
+    """
+    root = backups_root()
+    if not root.is_dir():
+        return
+    try:
+        dirs = sorted(
+            (
+                d
+                for d in root.iterdir()
+                if d.is_dir()
+                and not d.is_symlink()
+                and _BACKUP_STAMP_RE.match(d.name)
+            ),
+            reverse=True,
+        )
+    except OSError:
+        return
+    for old_dir in dirs[MAX_BACKUP_COUNT:]:
+        shutil.rmtree(old_dir, ignore_errors=True)
 
 
 def config_path():
@@ -121,6 +160,7 @@ def detect_prefix(explicit=None):
     remembered = load_prefix()
     if remembered:
         candidates.append(remembered)
+    candidates.append(Path("/home/deck/Windows/prefix"))
     candidates.append(Path.home() / "Windows" / "prefix")
     steam_root = steam.find_steam_root()
     if steam_root:
@@ -246,20 +286,33 @@ def _safe_target(root, relative):
     rel = Path(relative)
     if rel.is_absolute() or not rel.parts or any(part == ".." for part in rel.parts):
         return None
-    root_abs = os.path.abspath(root_path)
-    target_abs = os.path.abspath(root_path / rel)
+    # Use realpath to resolve symlinks before path comparison, preventing
+    # symlink-based escape attacks where a symlink inside root points outside.
     try:
-        if os.path.commonpath([root_abs, target_abs]) != root_abs:
+        root_real = Path(root_path).resolve(strict=True)
+        target_real = (root_path / rel).resolve(strict=False)
+    except OSError:
+        return None
+    try:
+        # After resolution, ensure target is within the resolved root.
+        if os.path.commonpath([str(root_real), str(target_real)]) != str(root_real):
             return None
     except ValueError:
         return None
-    parent = Path(target_abs).parent
-    root_lexical = Path(root_abs)
-    while parent != root_lexical:
-        if parent.is_symlink():
-            return None
-        parent = parent.parent
-    return Path(target_abs)
+    # Additional safety: check for symlinks in the original path components
+    # by walking from target up to root_real and checking for symlinks
+    try:
+        target_lexical = (root_path / rel).resolve(strict=False)
+        parent = target_lexical.parent
+        root_lexical_resolved = root_path.resolve(strict=False)
+        while parent != root_lexical_resolved and parent != parent.parent:
+            if parent.is_symlink():
+                return None
+            parent = parent.parent
+    except OSError:
+        return None
+    target_abs = os.path.abspath(root_path / rel)
+    return Path(target_abs) if target_abs else None
 
 
 def _inside(target, root):
@@ -271,12 +324,13 @@ def _inside(target, root):
 
 
 def _remove_path(target, root):
+    # Always verify containment before deletion, including for symlinks.
+    if not _inside(target, root):
+        return False
     if target.is_symlink():
         target.unlink()
         return True
     if target.is_file():
-        if not _inside(target, root):
-            return False
         target.unlink()
         return True
     return False
@@ -374,6 +428,7 @@ def copy_tree(package_root, stamp=None, dry_run=False):
             _copy_file(target, saved)
 
         try:
+            copied_files = []
             for relative in changed + stale:
                 if _safe_target(root, relative) is None:
                     raise ValueError(f"unsafe path in manifest or package: {relative}")
@@ -381,6 +436,7 @@ def copy_tree(package_root, stamp=None, dry_run=False):
                 target = _safe_target(root, relative)
                 _copy_file(staging / relative, target)
                 os.chmod(target, _mode(relative))
+                copied_files.append(relative)
             for relative in stale:
                 target = _safe_target(root, relative)
                 if target is not None:
@@ -388,8 +444,10 @@ def copy_tree(package_root, stamp=None, dry_run=False):
             _write_text(root / MANIFEST_NAME, _manifest_text(staged))
             _write_text(root / VERSION_NAME, core.VERSION + "\n")
         except Exception:
-            _restore_app(root, backup)
+            _restore_app(root, backup, copied_files)
             raise
+        _cleanup_old_backups()
+
         return {
             "status": "updated" if old else "installed",
             "app": str(root),
@@ -403,7 +461,7 @@ def copy_tree(package_root, stamp=None, dry_run=False):
         shutil.rmtree(staging, ignore_errors=True)
 
 
-def _restore_app(root, backup):
+def _restore_app(root, backup, copied_files=None):
     """Restore the previous managed tree from ``backup`` (best effort)."""
     backup = Path(backup)
     old_text = _read_text(backup / OLD_MANIFEST)
@@ -412,6 +470,13 @@ def _restore_app(root, backup):
         return
     old = _parse_manifest(old_text)
     current = _read_manifest(root / MANIFEST_NAME)
+    # First, remove any files that were copied during the failed update
+    # but are not in the old manifest (orphan files from failed update).
+    if copied_files is not None:
+        for relative in copied_files:
+            target = _safe_target(root, relative)
+            if target is not None:
+                _remove_path(target, root)
     for relative in sorted(set(current) - set(old)):
         target = _safe_target(root, relative)
         if target is not None:

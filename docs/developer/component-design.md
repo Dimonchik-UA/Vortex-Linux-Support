@@ -32,7 +32,7 @@ Filesystem checks: case sensitivity, hardlink support, accessibility, free space
 Package installation, update, verification, and removal. Transactional: stages new files, backs up existing ones, restores on failure.
 
 ### `ipc.py`
-JSON IPC client for communication between external component and Vortex Extension.
+Legacy minimal IPC client for communication between external component and Vortex Extension. Uses flat layout with single request/response files. **Not used in production** — the production client is `external/client.py` with per-request files and session-scoped layout. Retained for backward compatibility and diagnostics only.
 
 ### `launcher.py`
 Desktop-mode launcher: discovers Proton prefix, locates Vortex.exe, launches Vortex through Proton.

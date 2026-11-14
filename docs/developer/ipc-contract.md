@@ -6,25 +6,28 @@ OVLS uses file-based JSON IPC for communication between the external Linux Suppo
 
 Messages are exchanged as JSON files in a shared IPC directory under the Vortex prefix. The external component and the Extension each read/write files in designated subdirectories:
 
-- `requests/` — outgoing request files from external component
-- `processing/` — in-progress request files
-- `responses/` — response files from Extension
-- `acks/` — acknowledgment files
-- `dedup/` — deduplication records for request IDs
-- `quarantine/` — invalid or unprocessable requests
-- `processed/` — completed request files
-- `client_state/` — client-side acknowledgment confirmation files
+- `sessions/<sessionId>/requests/` — outgoing request files from external component (session-scoped)
+- `sessions/<sessionId>/processing/` — in-progress request files (session-scoped)
+- `sessions/<sessionId>/responses/` — response files from Extension (session-scoped)
+- `acks/` — acknowledgment files (global)
+- `dedup/` — deduplication records for request IDs (global)
+- `quarantine/` — invalid or unprocessable requests (global)
+- `processed/` — completed request files (global)
+- `client_state/` — client-side acknowledgment confirmation files (global)
 - `sessions/<sessionId>/` — session-scoped directories for multi-request sessions
+
+> **Note:** The session-scoped layout is the only supported layout. The legacy flat layout (`requests/`, `responses/` at IPC root) is not supported by the production Extension or client.
 
 ## Request Flow
 
-1. External component writes a request JSON file to `requests/<requestId>.json`
-2. Extension claims the request by atomically moving it to `processing/<requestId>.json`
-3. Extension processes the request and writes response to `responses/<requestId>.json`
+1. External component writes a request JSON file to `sessions/<sessionId>/requests/<requestId>.json`
+2. Extension claims the request by atomically moving it to `sessions/<sessionId>/processing/<requestId>.json`
+3. Extension processes the request and writes response to `sessions/<sessionId>/responses/<requestId>.json`
 4. Extension writes dedup record to `dedup/<requestId>.json`
-5. Extension writes acknowledgment to `acks/<requestId>.json`
-6. External component reads response and sends ACK confirmation to `client_state/<requestId>.ack_confirmed.json`
-7. Extension cleans up `processing/` and `acks/` files after confirmation
+5. External component reads response and sends ACK to `acks/<requestId>.ack.json` (written by external component)
+6. Extension reads ACK, creates `acks/<requestId>.acked` marker, updates dedup record
+7. External component writes ACK confirmation to `client_state/<requestId>.ack_confirmed.json`
+8. Extension processes ACK confirmation and cleans up `processing/` and `acks/` files
 
 ## Supported Request Types
 
@@ -56,7 +59,7 @@ Other request types are not currently supported. New commands are not added with
 - `getState`: Not guaranteed strictly idempotent (state may change between requests)
 - `handleAck`: Idempotent delete operation
 - `writeDedup`: Conditional idempotency (depends on TOCTOU protection)
-- `claimRequest`: Not idempotent based on O_EXCL alone (exclusive creation ≠ idempotency)
+- `claimRequest`: Not idempotent based on O_EXCL alone (exclusive creation ≠ idempotency); regression from `completed` to `processing` is prevented by dedup status check before claim
 
 ## Session Management
 
@@ -76,7 +79,7 @@ Open questions:
 
 - `writeDedup` performs read-modify-write without mutex/CAS/flock. In a single-process Extension, event loop serialization provides ordering, but this is not a general guarantee for multi-process access.
 - The TOCTOU (time-of-check-time-of-use) problem in `writeDedup` is **not resolved**. No atomic protection for dedup status transitions is implemented.
-- Repeated `claim` can change status from `completed` to `processing`, overwriting existing `ackProcessed`/`ackConfirmed` fields.
+- Repeated `claim` cannot change status from `completed` to `processing` because the Extension checks dedup status before claiming (see Request Flow step 2 guard in `pollOnce`).
 
 ## Directory fsync Limitations
 

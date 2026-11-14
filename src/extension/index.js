@@ -200,7 +200,7 @@ function readDedupRecord(dedupDir, requestId) {
   return record;
 }
 
-// P0.4: merge-update a dedup record.
+// P0.4: merge-update a dedup record with file locking to prevent TOCTOU.
 // Existing fields are preserved; only keys present in `patch` are replaced.
 // Returns { ok, missing }. `missing` is true when no record exists and
 // options.allowCreate is false; in that case nothing is written.
@@ -210,38 +210,88 @@ function mergeDedup(dedupDir, requestId, patch, context, options) {
     log(context, 'error', 'dedup update rejected: unsafe requestId ' + JSON.stringify(String(requestId)));
     return { ok: false, missing: false };
   }
-  let record = null;
+
+  // Acquire lock for this requestId to prevent TOCTOU
+  const lockFile = path.join(dedupDir, '.lock-' + requestId);
+  let lockFd = -1;
   try {
-    record = readDedupRecord(dedupDir, requestId);
-  } catch (e) {
-    log(context, 'error', 'dedup read failed for ' + requestId + ': ' + (e && e.message ? e.message : String(e)));
-    return { ok: false, missing: false };
-  }
-  if (record === null) {
-    if (!allowCreate) {
-      return { ok: false, missing: true };
+    // Try to acquire exclusive lock using O_EXCL
+    try {
+      lockFd = fs.openSync(lockFile, 'wx');
+    } catch (e) {
+      if (e.code === 'EEXIST') {
+        // Another process is updating this dedup record, wait and retry
+        let retries = 10;
+        while (retries-- > 0 && lockFd === -1) {
+          try {
+            lockFd = fs.openSync(lockFile, 'wx');
+          } catch (e2) {
+            if (e2.code !== 'EEXIST') throw e2;
+            // Wait a bit and retry
+            const start = Date.now();
+            while (Date.now() - start < 50) {}
+          }
+        }
+        if (lockFd === -1) {
+          log(context, 'error', 'dedup lock acquisition failed for ' + requestId);
+          return { ok: false, missing: false };
+        }
+      } else {
+        throw e;
+      }
     }
-    record = {
-      requestId: String(requestId),
-      dedupCreatedAt: new Date().toISOString()
-    };
-  }
-  const merged = Object.assign({}, record);
-  if (patch && typeof patch === 'object') {
-    Object.keys(patch).forEach(function (key) {
-      if (patch[key] !== undefined) merged[key] = patch[key];
-    });
-  }
-  merged.requestId = String(requestId);
-  merged.updatedAt = new Date().toISOString();
-  const dedupFile = path.join(dedupDir, requestId + '.json');
-  try {
-    writeJson(dedupFile, merged, context, 'dedup merge update');
+
+    let record = null;
+    try {
+      record = readDedupRecord(dedupDir, requestId);
+    } catch (e) {
+      try { fs.closeSync(lockFd); } catch (e2) {}
+      try { fs.unlinkSync(lockFile); } catch (e2) {}
+      log(context, 'error', 'dedup read failed for ' + requestId + ': ' + (e && e.message ? e.message : String(e)));
+      return { ok: false, missing: false };
+    }
+    if (record === null) {
+      if (!allowCreate) {
+        try { fs.closeSync(lockFd); } catch (e) {}
+        try { fs.unlinkSync(lockFile); } catch (e) {}
+        return { ok: false, missing: true };
+      }
+      record = {
+        requestId: String(requestId),
+        dedupCreatedAt: new Date().toISOString()
+      };
+    }
+    // Prevent regression: if record is already completed, don't overwrite with 'processing'
+    if (record.status === 'completed' && patch && patch.status === 'processing') {
+      try { fs.closeSync(lockFd); } catch (e) {}
+      try { fs.unlinkSync(lockFile); } catch (e) {}
+      log(context, 'warn', 'dedup update rejected: cannot regress completed to processing for ' + requestId);
+      return { ok: false, missing: false };
+    }
+    const merged = Object.assign({}, record);
+    if (patch && typeof patch === 'object') {
+      Object.keys(patch).forEach(function (key) {
+        if (patch[key] !== undefined) merged[key] = patch[key];
+      });
+    }
+    merged.requestId = String(requestId);
+    merged.updatedAt = new Date().toISOString();
+    const dedupFile = path.join(dedupDir, requestId + '.json');
+    try {
+      writeJson(dedupFile, merged, context, 'dedup merge update');
+    } catch (e) {
+      try { fs.closeSync(lockFd); } catch (e2) {}
+      try { fs.unlinkSync(lockFile); } catch (e2) {}
+      log(context, 'error', 'dedup write failed for ' + requestId + ': ' + (e && e.message ? e.message : String(e)));
+      return { ok: false, missing: false };
+    }
+    try { fs.closeSync(lockFd); } catch (e) {}
+    try { fs.unlinkSync(lockFile); } catch (e) {}
     return { ok: true, missing: false };
-  } catch (e) {
-    // The boolean contract is preserved (callers abort on false), but the cause is
-    // never silent: non-degradation errors such as EIO are reported to the caller.
-    log(context, 'error', 'dedup write failed for ' + requestId + ': ' + (e && e.message ? e.message : String(e)));
+  } catch (outerError) {
+    try { if (lockFd !== -1) fs.closeSync(lockFd); } catch (e) {}
+    try { fs.unlinkSync(lockFile); } catch (e) {}
+    log(context, 'error', 'dedup merge failed for ' + requestId + ': ' + (outerError && outerError.message ? outerError.message : String(outerError)));
     return { ok: false, missing: false };
   }
 }
@@ -314,7 +364,7 @@ function isSafePath(requestedPath) {
 // Uses O_EXCL ('wx' flag) for atomic exclusive creation of processing file.
 // renameSync alone is NOT exclusive — it can overwrite. O_EXCL guarantees
 // that only one process can create the target file.
-function claimRequest(requestPath, processingPath, context) {
+function claimRequest(requestPath, processingPath, context, dirs) {
   // 1. Validate source request exists and is readable
   if (!fs.existsSync(requestPath)) {
     throw new Error('CLAIM_SOURCE_MISSING: request file does not exist: ' + requestPath);
@@ -380,9 +430,18 @@ function claimRequest(requestPath, processingPath, context) {
   // every other error is propagated to the caller.
   fsyncDirectory(path.dirname(requestPath), 'claim: fsync requests/ after unlink', context);
 
-  // P0.3: Write dedup record with status "processing"
+  // P0.3: Write dedup record with status "processing" (only if not already completed)
   // P0.5: processing file already contains request data; status will be updated by caller
   const rid = (request.id || request.requestId || null);
+  // Check if there's already a completed dedup record to avoid regression
+  if (rid !== null) {
+    const existingDedup = readDedupRecord(dirs.dedupDir, rid);
+    if (!existingDedup || existingDedup.status !== 'completed') {
+      writeDedup(dirs.dedupDir, rid, 'processing', null, context);
+    } else {
+      log(context, 'info', 'claim skipped dedup write: request ' + rid + ' already completed');
+    }
+  }
   return {
     claimed: true,
     requestPath: requestPath,
@@ -1171,7 +1230,7 @@ function handleProcessing(filePath, context, dirs) {
 
     const responseFile = path.join(dirs.responsesDir, String(requestId === null ? 'unknown-' + Date.now() : requestId) + '.json');
     response.checksum = computeChecksum(response);
-          writeJson(responseFile, response, context, 'response write');
+    writeJson(responseFile, response, context, 'response write');
     // P0.5: Update processing status to "completed" before rename
     updateProcessingStatus(filePath, 'completed', context);
 
@@ -1204,8 +1263,8 @@ function handleProcessing(filePath, context, dirs) {
         }
       };
       const responseFile = path.join(dirs.responsesDir, String(requestId === null ? 'unknown-' + Date.now() : requestId) + '.json');
-      failureResponse.checksum = computeChecksum(failureResponse);
-      writeJson(responseFile, failureResponse, context, 'extension-error response');
+    failureResponse.checksum = computeChecksum(failureResponse);
+    writeJson(responseFile, failureResponse, context, 'extension-error response');
       const processedName = 'request.processed.' + String(requestId === null ? 'unknown' : requestId).replace(/[^a-zA-Z0-9_-]/g, '_') + '.json';
       if (fs.existsSync(filePath)) {
         fs.renameSync(filePath, path.join(dirs.processedDir, processedName));
@@ -1380,8 +1439,8 @@ function pollOnce(context, dirs) {
       return { action: 'ack_confirmed', file: confirmedPath, result: result };
     }
 
-    // Scan requests/ for per-request files
-    const requestFiles = listJsonFiles(dirs.requestsDir);
+    // Scan requests/ for per-request files (session-scoped only; flat layout not used for requests)
+    let requestFiles = listJsonFiles(dirs.requestsDir);
     if (requestFiles.length > 0) {
       const requestPath = requestFiles[0];
       const requestId = path.basename(requestPath, '.json');
@@ -1395,7 +1454,7 @@ function pollOnce(context, dirs) {
 
       const processingPath = path.join(dirs.processingDir, requestId + '.json');
       try {
-        const claimResult = claimRequest(requestPath, processingPath, context);
+        const claimResult = claimRequest(requestPath, processingPath, context, dirs);
         // P0.3: Write dedup record with status "processing"
         writeDedup(dirs.dedupDir, claimResult.requestId, 'processing', null, context);
         log(context, 'info', 'claimed request ' + claimResult.requestId);

@@ -14,12 +14,14 @@ refused instead of running silently. No new dependencies, no Vortex changes.
 
 import os
 import sys
+import threading
 from pathlib import Path
 
 import desktop
 import installer
 import launcher
 import package
+import updater
 
 TITLE = "OVLS Manager"
 
@@ -29,6 +31,14 @@ ACTIONS = [
     ("uninstall", "Uninstall"),
     ("prefix", "Change prefix"),
 ]
+
+# Background GitHub update check state (startup is non-blocking; Install/Update may
+# wait briefly if a check is already in progress to avoid missing an update).
+_UPDATE_CHECK_WAIT_TIMEOUT = 4.0
+_update_check_lock = threading.Lock()
+_update_check_inflight = False
+_update_check_done = threading.Event()
+_update_check_done.set()
 
 
 def _zenity(tool):
@@ -102,6 +112,125 @@ def _shortcut_notes(shortcut_result):
     return lines
 
 
+def _start_background_update_check():
+    """Refresh GitHub update cache without blocking Manager startup/UI.
+
+    Never starts a parallel check while one is already in progress.
+    """
+    global _update_check_inflight
+    with _update_check_lock:
+        if _update_check_inflight:
+            return None
+        _update_check_inflight = True
+        _update_check_done.clear()
+
+    def _worker():
+        global _update_check_inflight
+        try:
+            updater.check_for_updates(force=False)
+        except Exception:
+            # Network/cache errors must not affect Manager operation.
+            pass
+        finally:
+            with _update_check_lock:
+                _update_check_inflight = False
+            _update_check_done.set()
+
+    thread = threading.Thread(target=_worker, name="ovls-update-check", daemon=True)
+    thread.start()
+    return thread
+
+
+def _wait_for_background_update_check(timeout=None):
+    """Wait for an in-flight startup check, if any, without starting another."""
+    if timeout is None:
+        timeout = _UPDATE_CHECK_WAIT_TIMEOUT
+    with _update_check_lock:
+        inflight = _update_check_inflight
+    if not inflight:
+        return True
+    try:
+        return _update_check_done.wait(timeout=max(0.0, float(timeout)))
+    except Exception:
+        return False
+
+
+def _cached_update_info():
+    """Return cached updater state (no network)."""
+    try:
+        return updater.load_cache()
+    except Exception:
+        return None
+
+
+def _available_update_info():
+    info = _cached_update_info()
+    if info and getattr(info, "status", None) == "update_available":
+        return info
+    return None
+
+
+def _self_refresh_install(prefix):
+    """Preserve existing Install/Update behavior from installed copy."""
+    return package.install(prefix=str(prefix), update=True)
+
+
+def _github_release_install(prefix):
+    """Download, verify, extract and install a GitHub release package.
+
+    Returns (result, error_message). ``result`` is the package.install result on
+    success. On failure, returns (None, message) and never leaves a prepared
+    temp directory behind.
+    """
+    prepared = None
+    try:
+        try:
+            fresh = updater.check_for_updates(force=True)
+        except Exception as exc:
+            return None, f"Не удалось проверить обновление GitHub:\n{exc}"
+
+        if not fresh or getattr(fresh, "status", None) != "update_available":
+            return None, (
+                "Обновление из GitHub сейчас недоступно. "
+                "Проверьте соединение и повторите попытку позже."
+            )
+
+        prepared = updater.prepare_release_package(fresh)
+        result = package.install(
+            package_root=prepared.package_root,
+            prefix=str(prefix),
+            update=True,
+        )
+        # Attach release metadata for user-facing summary.
+        result = dict(result)
+        result["github_update"] = {
+            "status": "installed",
+            "version": prepared.version,
+            "tag_name": prepared.tag_name,
+        }
+        return result, None
+    except updater.VerificationError as exc:
+        return None, f"Проверка целостности обновления не пройдена (SHA-256):\n{exc}"
+    except updater.PackageFormatError as exc:
+        return None, f"Пакет обновления повреждён или имеет неверный формат:\n{exc}"
+    except updater.NetworkError as exc:
+        return None, f"Ошибка сети при загрузке обновления:\n{exc}"
+    except updater.ReleaseNotFoundError as exc:
+        return None, f"Релиз обновления недоступен:\n{exc}"
+    except updater.UpdaterError as exc:
+        return None, f"Не удалось подготовить обновление:\n{exc}"
+    except (OSError, ValueError) as exc:
+        return None, f"Установка обновления не выполнена:\n{exc}"
+    except Exception as exc:
+        return None, f"Не удалось установить обновление:\n{exc}"
+    finally:
+        if prepared is not None:
+            try:
+                prepared.cleanup()
+            except Exception:
+                pass
+
+
 def action_install(prefix=None):
     prefix = prefix or _require_prefix()
     if not prefix:
@@ -121,14 +250,62 @@ def action_install(prefix=None):
     if info["running_vortex"]:
         launcher.show_message("Vortex запущен. Закройте его и повторите.")
         return
+
+    # If a verified GitHub release update is available, offer it through the
+    # existing Install / Update action. Refusal/unknown/unavailable keeps the
+    # previous self-refresh behavior from the installed copy.
     try:
-        result = package.install(prefix=str(prefix), update=True)
-    except (OSError, ValueError) as exc:
-        launcher.show_message(f"Установка не выполнена:\n{exc}")
-        return
+        available = _available_update_info()
+    except Exception:
+        available = None
+
+    # Race fix: if startup background check is still running, wait briefly for its
+    # result instead of skipping a just-discovered update. No parallel check is
+    # started here; on timeout/error we keep the previous self-refresh behavior.
+    if available is None:
+        try:
+            _wait_for_background_update_check()
+            available = _available_update_info()
+        except Exception:
+            available = None
+
+    if available is not None:
+        current = available.current_version or package.read_installed_version() or "неизвестна"
+        latest = available.latest_version or "неизвестна"
+        use_github = launcher.confirm(
+            "Доступно обновление OVLS из GitHub Releases.\n\n"
+            f"Установленная версия: {current}\n"
+            f"Доступная версия: {latest}\n\n"
+            "Скачать, проверить (SHA-256) и установить это обновление сейчас?\n\n"
+            "При отказе будет выполнено обычное обновление компонентов из установленной копии."
+        )
+        if use_github:
+            result, error = _github_release_install(str(prefix))
+            if error:
+                launcher.show_message(error)
+                return
+        else:
+            try:
+                result = _self_refresh_install(str(prefix))
+            except (OSError, ValueError) as exc:
+                launcher.show_message(f"Установка не выполнена:\n{exc}")
+                return
+    else:
+        try:
+            result = _self_refresh_install(str(prefix))
+        except (OSError, ValueError) as exc:
+            launcher.show_message(f"Установка не выполнена:\n{exc}")
+            return
+
     shortcuts = result.get("shortcuts") or {}
+    gh = result.get("github_update") or {}
+    title = "Компоненты обновлены."
+    if gh.get("status") == "installed":
+        version = gh.get("version") or "новая версия"
+        title = f"Обновление OVLS установлено ({version})."
+
     lines = [
-        "Компоненты обновлены.",
+        title,
         "",
         f"Extension: {result['installation']['extension']['status']}",
         f"NXM: {result['nxm_handler']['status']}",
@@ -282,6 +459,11 @@ def action_change_prefix():
 
 
 def run(argv=None):
+    # Non-blocking: refresh GitHub release cache in background so menu opening
+    # does not wait for network; offline/errors keep Manager fully usable.
+    if launcher._dialog_tool() is not None:
+        _start_background_update_check()
+
     while True:
         action = choose_action()
         if action is None:

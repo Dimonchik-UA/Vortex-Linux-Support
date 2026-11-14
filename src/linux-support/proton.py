@@ -2,6 +2,95 @@ import os
 import glob
 import sys
 import subprocess
+import threading
+
+
+# Log rotation constants for subprocess logs
+LOG_MAX_BYTES = 1_000_000  # 1 MB
+LOG_BACKUP_COUNT = 2       # 2 backups = ~3 MB total
+
+
+class RotatingSubprocessLog:
+    """File-like object that rotates at size limit, for subprocess stdout/stderr.
+
+    Behaves like a regular file opened in 'ab' mode, but rotates when size
+    exceeds LOG_MAX_BYTES, keeping LOG_BACKUP_COUNT backups.
+    """
+
+    def __init__(self, path: str):
+        self.path = os.path.abspath(os.path.expanduser(path))
+        self._lock = threading.Lock()
+        self._fh = None
+        self._open()
+
+    def _open(self):
+        os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
+        self._fh = open(self.path, "ab")
+
+    def _rotate(self):
+        """Rotate log file: log -> log.1, log.1 -> log.2, etc."""
+        if self._fh is not None:
+            self._fh.close()
+            self._fh = None
+        # Remove oldest backup
+        oldest = f"{self.path}.{LOG_BACKUP_COUNT}"
+        if os.path.exists(oldest):
+            try:
+                os.remove(oldest)
+            except OSError:
+                pass
+        # Shift existing backups
+        for i in range(LOG_BACKUP_COUNT - 1, 0, -1):
+            src = f"{self.path}.{i}"
+            dst = f"{self.path}.{i + 1}"
+            if os.path.exists(src):
+                try:
+                    os.rename(src, dst)
+                except OSError:
+                    pass
+        # Rotate current
+        if os.path.exists(self.path):
+            try:
+                os.rename(self.path, f"{self.path}.1")
+            except OSError:
+                pass
+        self._open()
+
+    def write(self, data):
+        if isinstance(data, str):
+            data = data.encode("utf-8")
+        with self._lock:
+            if self._fh is None:
+                self._open()
+            # Check size before write
+            if self._fh.tell() + len(data) > LOG_MAX_BYTES:
+                self._rotate()
+            self._fh.write(data)
+
+    def flush(self):
+        with self._lock:
+            if self._fh is not None:
+                self._fh.flush()
+
+    def close(self):
+        with self._lock:
+            if self._fh is not None:
+                self._fh.close()
+                self._fh = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
+
+    def fileno(self):
+        """Return file descriptor for subprocess.Popen."""
+        with self._lock:
+            if self._fh is None:
+                self._open()
+            return self._fh.fileno()
 
 
 def find_proton_versions():
@@ -158,7 +247,7 @@ def spawn_vortex(
             for candidate in candidates:
                 try:
                     os.makedirs(os.path.dirname(candidate) or ".", exist_ok=True)
-                    log_handle = open(candidate, "ab")
+                    log_handle = RotatingSubprocessLog(candidate)
                     resolved_log = candidate
                     break
                 except OSError:

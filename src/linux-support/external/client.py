@@ -430,11 +430,13 @@ def ack_response(request_id, response, ipc_dir=None, ack_timeout=DEFAULT_ACK_TIM
 
     if not poll_acked(request_id, ipc_dir, timeout=ack_timeout):
         result["error"] = "ACK_TIMEOUT"
+        result["ok"] = False
         return result
     result["acked"] = True
 
     if not save_ack_confirmed(request_id, ipc_dir):
         result["error"] = "CONFIRM_SAVE_FAILED"
+        result["ok"] = False
         return result
     result["ackConfirmed"] = True
     result["ok"] = True
