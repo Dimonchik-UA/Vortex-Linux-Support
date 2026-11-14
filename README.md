@@ -1,3 +1,5 @@
+![OVLS preview](docs/assets/ovls-preview.png)
+
 # OVLS — Linux Support for Official Vortex
 
 Vortex is a mod manager for PC games developed by Nexus Mods. OVLS (Vortex Linux Support) is an independent external layer that enables the official Windows version of Vortex to run on SteamOS/Linux through Proton, without modifying Vortex itself.
