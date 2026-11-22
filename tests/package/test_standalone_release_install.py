@@ -30,13 +30,21 @@ import updater  # noqa: E402
 BUILD_SCRIPT = PROJECT / "scripts" / "build_package.py"
 
 
-def _build_standalone(out_dir: Path) -> Path:
+def _build_standalone(out_dir: Path, archive: bool = False) -> Path:
     """Build standalone OVLS Installer folder using the real build script."""
     out_dir = Path(out_dir)
     if out_dir.exists():
         shutil.rmtree(out_dir)
     cmd = [sys.executable, str(BUILD_SCRIPT), "--out", str(out_dir)]
-    result = subprocess.run(cmd, cwd=str(PROJECT), capture_output=True, text=True)
+    if archive:
+        cmd.append("--archive")
+    result = subprocess.run(
+        cmd,
+        cwd=str(PROJECT),
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+    )
     if result.returncode != 0:
         raise AssertionError(
             f"build_package.py failed ({result.returncode})\n"
@@ -45,6 +53,11 @@ def _build_standalone(out_dir: Path) -> Path:
         )
     if not (out_dir / "ovls" / "ovls.py").is_file():
         raise AssertionError("built standalone package missing ovls/ovls.py")
+    if archive:
+        if not (out_dir.parent / "OVLS-Installer.tar.gz").is_file():
+            raise AssertionError("build_package.py --archive did not create the archive")
+        if not (out_dir.parent / "SHA256SUMS").is_file():
+            raise AssertionError("build_package.py --archive did not create SHA256SUMS")
     return out_dir
 
 
@@ -226,6 +239,7 @@ class StandaloneReleaseInstallTest(unittest.TestCase):
     def test_rollback_on_install_failure_restores_previous_standalone_install(self):
         self._install(update=False)
         original = (self.app / "ovls/core.py").read_bytes()
+        original_version = (self.app / "VERSION").read_text(encoding="utf-8")
         manifest = (self.app / "MANIFEST.sha256").read_text(encoding="utf-8")
         notes = self.app / "notes.txt"
         notes.write_text("user file\n", encoding="utf-8")
@@ -246,6 +260,7 @@ class StandaloneReleaseInstallTest(unittest.TestCase):
         self.assertEqual((self.app / "ovls/core.py").read_bytes(), original)
         self.assertFalse((self.app / "ovls/extra_broken.py").exists())
         self.assertEqual((self.app / "MANIFEST.sha256").read_text(encoding="utf-8"), manifest)
+        self.assertEqual((self.app / "VERSION").read_text(encoding="utf-8"), original_version)
         self.assertEqual(notes.read_text(encoding="utf-8"), "user file\n")
         self.assertTrue((self.app / "ovls/updater.py").is_file())
 
@@ -292,6 +307,9 @@ class StandaloneUpdaterFlowTest(unittest.TestCase):
         self.desktop_dir = self.root / "Desktop"
         self.apps_dir = self.data / "applications"
         self.app = self.data / "ovls"
+        self.standalone = _build_standalone(self.root / "OVLS Installer", archive=True)
+        self.archive = self.root / "OVLS-Installer.tar.gz"
+        self.sums = self.root / "SHA256SUMS"
         self.prefix = _build_prefix(self.root)
         self.steam_root = self.home / ".local" / "share" / "Steam"
         (self.steam_root / "steamapps").mkdir(parents=True)
@@ -331,11 +349,11 @@ class StandaloneUpdaterFlowTest(unittest.TestCase):
         shutil.rmtree(self.root, ignore_errors=True)
 
     def test_full_updater_install_flow_with_real_dist_archive(self):
-        dist = PROJECT / "dist"
-        archive = dist / "OVLS-Installer.tar.gz"
-        sums = dist / "SHA256SUMS"
-        self.assertTrue(archive.is_file(), "dist/OVLS-Installer.tar.gz missing")
-        self.assertTrue(sums.is_file(), "dist/SHA256SUMS missing")
+        archive = self.archive
+        sums = self.sums
+        self.assertTrue(archive.is_file(), "temporary OVLS-Installer.tar.gz missing")
+        self.assertTrue(sums.is_file(), "temporary SHA256SUMS missing")
+        self.assertFalse((PROJECT / "dist").exists(), "test must not create dist/ in the clone")
 
         # SHA256 verification
         sums_text = sums.read_text(encoding="utf-8")
@@ -396,6 +414,55 @@ class StandaloneUpdaterFlowTest(unittest.TestCase):
             )
             self.assertEqual(result2["status"], "ok", result2)
             self.assertTrue((self.app / "ovls/ovls.py").is_file())
+        finally:
+            prepared.cleanup()
+        self.assertFalse(temp_root.exists(), "prepared.cleanup() must remove temp dir")
+
+    def test_version_after_fresh_install_comes_from_prepared_package(self):
+        """AUDIT-001: prepared package 0.2.0 -> fresh install VERSION 0.2.0."""
+        temp_root = self.root / "version-updtmp"
+        temp_root.mkdir()
+        extract_dir = temp_root / "extract"
+        extract_dir.mkdir()
+        updater._safe_extract_tar(self.archive, extract_dir)
+        pkg_root = updater.detect_package_root(extract_dir)
+
+        core_file = pkg_root / "ovls" / "core.py"
+        core_text = core_file.read_text(encoding="utf-8")
+        self.assertIn('VERSION = "0.1.0"', core_text)
+        core_file.write_text(
+            core_text.replace('VERSION = "0.1.0"', 'VERSION = "0.2.0"'),
+            encoding="utf-8",
+        )
+        updater.validate_package_root(pkg_root, expected_version="0.2.0")
+
+        prepared = updater.PreparedRelease(
+            package_root=pkg_root,
+            version="0.2.0",
+            tag_name="v0.2.0",
+            temp_dir=temp_root,
+            archive_path=self.archive,
+            checksums_path=self.sums,
+        )
+        try:
+            result = package.install(
+                package_root=str(prepared.package_root),
+                prefix=str(self.prefix),
+                update=False,
+            )
+            self.assertEqual(result["status"], "ok", result)
+            self.assertEqual(
+                (self.app / "VERSION").read_text(encoding="utf-8").strip(), "0.2.0"
+            )
+            self.assertEqual(updater.current_local_version(), "0.2.0")
+            state = package.manifest_status()
+            self.assertEqual(state["status"], "ok", state)
+            self.assertEqual(state["expected_version"], "0.2.0")
+            self.assertEqual(state["version_status"], "ok")
+            self.assertIn(
+                'VERSION = "0.2.0"',
+                (self.app / "ovls" / "core.py").read_text(encoding="utf-8"),
+            )
         finally:
             prepared.cleanup()
         self.assertFalse(temp_root.exists(), "prepared.cleanup() must remove temp dir")

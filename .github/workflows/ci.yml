@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      # The Node harnesses are wrapped by tests/installer/test_*_harness.py.
+      # Without setup-node those tests are skipped, so pin the locally verified runtime.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "26.13.1"
+
+      # Required by tests/package/test_build_package.py::test_desktop_launcher_is_valid.
+      - name: Install desktop-file-utils
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq desktop-file-utils
+
+      - name: Run package tests
+        run: python3 -m unittest discover -s tests/package -p 'test_*.py'
+
+      - name: Run installer tests
+        run: python3 -m unittest discover -s tests/installer -p 'test_*.py'
+
+      - name: Build OVLS Installer
+        run: python3 scripts/build_package.py --archive
+
+      - name: Verify SHA256SUMS
+        working-directory: dist
+        run: sha256sum -c SHA256SUMS

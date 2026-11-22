@@ -22,6 +22,7 @@ import desktop  # noqa: E402
 import extension_installer  # noqa: E402
 import installer  # noqa: E402
 import package  # noqa: E402
+import updater  # noqa: E402
 
 EXTENSION_SOURCE = PROJECT / "src" / "extension"
 
@@ -409,6 +410,269 @@ class PackageTest(unittest.TestCase):
         self._install()
         with self.assertRaises(ValueError):
             package.install(package_root=str(self.app), prefix=str(self.prefix))
+
+    def test_update_writes_version_from_package_core_not_running_process(self):
+        self._install()
+        core_file = self.package / "src" / "linux-support" / "core.py"
+        original = core_file.read_text(encoding="utf-8")
+        self.assertIn('VERSION = "0.1.0"', original)
+        core_file.write_text(
+            original.replace('VERSION = "0.1.0"', 'VERSION = "0.2.0"'),
+            encoding="utf-8",
+        )
+
+        # Running process is deliberately older than the package being installed.
+        with mock.patch.object(package.core, "VERSION", "0.0.1"):
+            result = self._install(update=True)
+
+        self.assertEqual(result["copy"]["status"], "updated")
+        self.assertEqual((self.app / "VERSION").read_text(encoding="utf-8").strip(), "0.2.0")
+        installed_core = (self.app / "src" / "linux-support" / "core.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('VERSION = "0.2.0"', installed_core)
+        self.assertEqual(updater.current_local_version(), "0.2.0")
+
+    def test_update_repairs_stale_version_without_file_changes(self):
+        self._install()
+        (self.app / "VERSION").write_text("0.0.1\n", encoding="utf-8")
+
+        result = self._install(update=True)
+
+        self.assertEqual(result["copy"]["status"], "updated")
+        self.assertEqual(result["copy"]["changed"], [])
+        self.assertEqual(result["copy"]["stale"], [])
+        self.assertEqual((self.app / "VERSION").read_text(encoding="utf-8").strip(), "0.1.0")
+        self.assertTrue((self.app / "MANIFEST.sha256").is_file())
+
+    def test_repeated_update_of_same_version_is_still_idempotent(self):
+        self._install()
+        first = (self.app / "VERSION").read_text(encoding="utf-8")
+
+        result = self._install(update=True)
+
+        self.assertEqual(result["copy"]["status"], "unchanged")
+        self.assertEqual((self.app / "VERSION").read_text(encoding="utf-8"), first)
+
+    def test_failed_update_restores_previous_version(self):
+        self._install()
+        original_version = (self.app / "VERSION").read_text(encoding="utf-8")
+        core_file = self.package / "src" / "linux-support" / "core.py"
+        core_file.write_text(
+            core_file.read_text(encoding="utf-8").replace(
+                'VERSION = "0.1.0"', 'VERSION = "0.2.0"'
+            ),
+            encoding="utf-8",
+        )
+
+        with mock.patch.object(installer, "install", side_effect=OSError("boom")):
+            with self.assertRaises(OSError):
+                self._install(update=True)
+
+        self.assertEqual((self.app / "VERSION").read_text(encoding="utf-8"), original_version)
+        self.assertIn(
+            'VERSION = "0.1.0"',
+            (self.app / "src" / "linux-support" / "core.py").read_text(encoding="utf-8"),
+        )
+
+    def test_rollback_removes_version_file_when_it_was_absent(self):
+        self._install()
+        (self.app / "VERSION").unlink()
+        core_file = self.package / "src" / "linux-support" / "core.py"
+        core_file.write_text(
+            core_file.read_text(encoding="utf-8").replace(
+                'VERSION = "0.1.0"', 'VERSION = "0.2.0"'
+            ),
+            encoding="utf-8",
+        )
+
+        with mock.patch.object(installer, "install", side_effect=OSError("boom")):
+            with self.assertRaises(OSError):
+                self._install(update=True)
+
+        self.assertFalse((self.app / "VERSION").exists())
+        self.assertIn(
+            'VERSION = "0.1.0"',
+            (self.app / "src" / "linux-support" / "core.py").read_text(encoding="utf-8"),
+        )
+
+    def test_rollback_restores_empty_version_file_exactly(self):
+        self._install()
+        (self.app / "VERSION").write_text("", encoding="utf-8")
+        core_file = self.package / "src" / "linux-support" / "core.py"
+        core_file.write_text(
+            core_file.read_text(encoding="utf-8").replace(
+                'VERSION = "0.1.0"', 'VERSION = "0.2.0"'
+            ),
+            encoding="utf-8",
+        )
+
+        with mock.patch.object(installer, "install", side_effect=OSError("boom")):
+            with self.assertRaises(OSError):
+                self._install(update=True)
+
+        version_file = self.app / "VERSION"
+        self.assertTrue(version_file.is_file())
+        self.assertEqual(version_file.read_text(encoding="utf-8"), "")
+
+    def test_manifest_status_accepts_version_matching_installed_core(self):
+        self._install()
+
+        state = package.manifest_status()
+
+        self.assertEqual(state["status"], "ok")
+        self.assertEqual(state["version_status"], "ok")
+        self.assertEqual(state["version"], "0.1.0")
+        self.assertEqual(state["expected_version"], "0.1.0")
+
+    def test_manifest_status_rejects_outdated_version(self):
+        self._install()
+        (self.app / "VERSION").write_text("0.0.9\n", encoding="utf-8")
+
+        state = package.manifest_status()
+
+        self.assertEqual(state["status"], "attention_required")
+        self.assertEqual(state["version_status"], "outdated")
+        self.assertEqual(state["version"], "0.0.9")
+
+    def test_manifest_status_rejects_empty_version(self):
+        self._install()
+        (self.app / "VERSION").write_text("", encoding="utf-8")
+
+        state = package.manifest_status()
+
+        self.assertEqual(state["status"], "attention_required")
+        self.assertEqual(state["version_status"], "empty")
+        self.assertEqual(state["version"], "")
+
+    def test_manifest_status_rejects_missing_version(self):
+        self._install()
+        (self.app / "VERSION").unlink()
+
+        state = package.manifest_status()
+
+        self.assertEqual(state["status"], "attention_required")
+        self.assertEqual(state["version_status"], "missing")
+        self.assertIsNone(state["version"])
+
+
+    def _refresh_manifest_digest(self, relative):
+        manifest = self.app / "MANIFEST.sha256"
+        entries = package._parse_manifest(manifest.read_text(encoding="utf-8"))
+        entries[relative] = _sha256(self.app / relative)
+        manifest.write_text(package._manifest_text(entries), encoding="utf-8")
+
+    def test_self_refresh_repairs_stale_version_without_copy_tree(self):
+        self._install()
+        (self.app / "VERSION").write_text("0.0.1\n", encoding="utf-8")
+
+        with mock.patch.object(package, "copy_tree", side_effect=AssertionError("copy_tree called")), \
+                mock.patch.object(package.installer, "install", return_value={"status": "unchanged"}), \
+                mock.patch.object(package.desktop, "install_handler", return_value={"status": "unchanged"}):
+            result = package.install(
+                package_root=str(self.app), prefix=str(self.prefix), update=True
+            )
+
+        self.assertEqual(result["copy"]["status"], "unchanged")
+        self.assertEqual((self.app / "VERSION").read_text(encoding="utf-8"), "0.1.0\n")
+        self.assertEqual(package.manifest_status()["status"], "ok")
+
+    def test_self_refresh_dry_run_with_stale_version_writes_nothing(self):
+        self._install()
+        (self.app / "VERSION").write_text("0.0.1\n", encoding="utf-8")
+        manifest = (self.app / "MANIFEST.sha256").read_bytes()
+
+        with mock.patch.object(package, "copy_tree", side_effect=AssertionError("copy_tree called")) as copy_tree:
+            result = package.install(
+                package_root=str(self.app),
+                prefix=str(self.prefix),
+                update=True,
+                dry_run=True,
+            )
+
+        copy_tree.assert_not_called()
+        self.assertTrue(result["dry_run"])
+        self.assertEqual((self.app / "VERSION").read_text(encoding="utf-8"), "0.0.1\n")
+        self.assertEqual((self.app / "MANIFEST.sha256").read_bytes(), manifest)
+        self.assertEqual(result["copy"]["status"], "would_update")
+        self.assertEqual(
+            result["copy"]["version_repair"],
+            {"current": "0.0.1", "expected": "0.1.0"},
+        )
+
+    def test_failed_chmod_removes_already_copied_file(self):
+        real_chmod = package.os.chmod
+        state = {"failed": False}
+
+        def fail_on_install_chmod(path, mode):
+            target = Path(path)
+            if (not state["failed"] and self.app in target.parents
+                    and "backups" not in target.parts and ".ovls-stage-" not in target.parts):
+                state["failed"] = True
+                raise OSError("chmod boom")
+            return real_chmod(path, mode)
+
+        with mock.patch.object(package.os, "chmod", side_effect=fail_on_install_chmod):
+            with self.assertRaises(OSError):
+                self._install()
+
+        self.assertTrue(state["failed"])
+        leftovers = [
+            p for p in self.app.rglob("*")
+            if p.is_file() and "backups" not in p.parts
+        ]
+        self.assertEqual(leftovers, [], leftovers)
+
+    def test_manifest_status_rejects_version_symlink_and_update_replaces_it(self):
+        self._install()
+        target = self.app / "version-target"
+        target.write_text("0.1.0\n", encoding="utf-8")
+        version = self.app / "VERSION"
+        version.unlink()
+        version.symlink_to(target)
+
+        state = package.manifest_status()
+        self.assertEqual(state["status"], "attention_required")
+        self.assertEqual(state["version_status"], "unsafe")
+
+        self._install(update=True)
+
+        self.assertFalse(version.is_symlink())
+        self.assertEqual(version.read_text(encoding="utf-8"), "0.1.0\n")
+
+    def test_manifest_status_rejects_conflicting_core_versions(self):
+        self._install()
+        legacy = self.app / "legacy" / "core.py"
+        legacy.parent.mkdir()
+        legacy.write_text('VERSION = "0.2.0"\n', encoding="utf-8")
+        self._refresh_manifest_digest("legacy/core.py")
+        (self.app / "VERSION").write_text("0.2.0\n", encoding="utf-8")
+
+        state = package.manifest_status()
+
+        self.assertEqual(state["status"], "attention_required")
+        self.assertEqual(state["version_status"], "unknown")
+
+    def test_version_parser_rejects_malformed_core_assignments(self):
+        parse = package._version_from_core_text
+        self.assertEqual(parse('VERSION = "0.1.0"\n'), "0.1.0")
+        self.assertEqual(
+            parse('"""\nVERSION = "9.9.9"\n"""\nVERSION = "0.1.0"\n'), "0.1.0"
+        )
+        for text in (
+            'VERSION = "0.1.0\'\n',
+            'VERSION = "0.1.\n0"\n',
+            'VERSION = 0.1.0\n',
+            'VERSION = "0.1.0"\nVERSION = "0.2.0"\n',
+        ):
+            self.assertIsNone(parse(text), text)
+
+    def test_manifest_status_survives_unreadable_file(self):
+        self._install()
+        with mock.patch.object(package, "_sha256", side_effect=OSError("nope")):
+            state = package.manifest_status()
+        self.assertEqual(state["status"], "attention_required")
+        self.assertTrue(state["modified"])
 
 
 if __name__ == "__main__":

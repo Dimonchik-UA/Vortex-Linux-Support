@@ -1,4 +1,4 @@
-"""Tests for Tools/build_package.py.
+"""Tests for scripts/build_package.py.
 
 The build folder must be a complete, relocatable installer with a readable
 layout (``ovls/`` + ``ovls/extension/``), and it must install without the
@@ -10,9 +10,11 @@ import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 PROJECT = HERE.parents[1]
@@ -186,6 +188,138 @@ class BuildPackageTest(unittest.TestCase):
             timeout=60,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_readme_is_installer_guide(self):
+        build_package.build(self.out)
+
+        content = (self.out / "README.md").read_bytes()
+        self.assertEqual(content, (PROJECT / "installer" / "README.md").read_bytes())
+        self.assertNotEqual(content, (PROJECT / "README.md").read_bytes())
+        text = content.decode("utf-8")
+        self.assertIn("OVLS Installer — Standalone Package", text)
+        self.assertNotIn("docs/assets/ovls-preview.png", text)
+
+    def test_archive_contains_exact_installer_readme(self):
+        build_package.build(self.out)
+        archive_path = self.root / "OVLS-Installer.tar.gz"
+        sums_path = self.root / "SHA256SUMS"
+        digest = build_package.write_archive(self.out, archive_path, sums_path)
+
+        self.assertEqual(len(digest), 64)
+        self.assertIn(archive_path.name, sums_path.read_text(encoding="utf-8"))
+        with tarfile.open(archive_path, "r:gz") as tar:
+            members = tar.getmembers()
+            readme = next(m for m in members if Path(m.name).name == "README.md")
+            content = tar.extractfile(readme).read()
+        self.assertEqual(content, (PROJECT / "installer" / "README.md").read_bytes())
+        self.assertNotIn(b"docs/assets/ovls-preview.png", content)
+
+    def test_version_consistency_accepts_current_sources(self):
+        version = json.loads(
+            (PROJECT / "src" / "extension" / "info.json").read_text(encoding="utf-8")
+        )["version"]
+        self.assertEqual(build_package.check_version_consistency(), version)
+
+    def test_version_consistency_rejects_mismatch(self):
+        project = self.root / "version-project"
+        (project / "src" / "linux-support").mkdir(parents=True)
+        (project / "src" / "extension").mkdir(parents=True)
+        (project / "src" / "linux-support" / "core.py").write_text(
+            'VERSION = "0.2.0"\n', encoding="utf-8"
+        )
+        (project / "src" / "extension" / "info.json").write_text(
+            json.dumps({"version": "0.1.0"}), encoding="utf-8"
+        )
+
+        with self.assertRaises(SystemExit) as caught:
+            build_package.check_version_consistency(project)
+
+        self.assertIn("version mismatch", str(caught.exception))
+
+
+    def test_main_blocks_build_before_creating_output(self):
+        with mock.patch.object(
+            build_package, "check_version_consistency", side_effect=SystemExit("ERROR: drift")
+        ) as check, mock.patch.object(build_package, "build") as build:
+            with self.assertRaises(SystemExit):
+                build_package.main(["--out", str(self.out)])
+
+        check.assert_called_once_with()
+        build.assert_not_called()
+        self.assertFalse(self.out.exists())
+
+    def test_version_check_rejects_missing_core(self):
+        project = self.root / "missing-core"
+        (project / "src" / "extension").mkdir(parents=True)
+        (project / "src" / "extension" / "info.json").write_text(
+            json.dumps({"version": "0.1.0"}), encoding="utf-8"
+        )
+
+        with self.assertRaises(SystemExit) as caught:
+            build_package.check_version_consistency(project)
+
+        self.assertIn("cannot read", str(caught.exception))
+
+    def test_version_check_rejects_invalid_json(self):
+        project = self.root / "invalid-json"
+        (project / "src" / "linux-support").mkdir(parents=True)
+        (project / "src" / "extension").mkdir(parents=True)
+        (project / "src" / "linux-support" / "core.py").write_text(
+            'VERSION = "0.1.0"\n', encoding="utf-8"
+        )
+        (project / "src" / "extension" / "info.json").write_text(
+            "{not json", encoding="utf-8"
+        )
+
+        with self.assertRaises(SystemExit) as caught:
+            build_package.check_version_consistency(project)
+
+        self.assertIn("cannot read", str(caught.exception))
+
+    def test_version_check_accepts_bom(self):
+        project = self.root / "bom"
+        (project / "src" / "linux-support").mkdir(parents=True)
+        (project / "src" / "extension").mkdir(parents=True)
+        (project / "src" / "linux-support" / "core.py").write_text(
+            '\ufeffVERSION = "0.1.0"\n', encoding="utf-8"
+        )
+        (project / "src" / "extension" / "info.json").write_text(
+            '\ufeff' + json.dumps({"version": "0.1.0"}), encoding="utf-8"
+        )
+
+        self.assertEqual(build_package.check_version_consistency(project), "0.1.0")
+
+    def test_version_check_rejects_non_semver_version(self):
+        project = self.root / "non-semver"
+        (project / "src" / "linux-support").mkdir(parents=True)
+        (project / "src" / "extension").mkdir(parents=True)
+        (project / "src" / "linux-support" / "core.py").write_text(
+            'VERSION = "latest"\n', encoding="utf-8"
+        )
+        (project / "src" / "extension" / "info.json").write_text(
+            json.dumps({"version": "latest"}), encoding="utf-8"
+        )
+
+        with self.assertRaises(SystemExit) as caught:
+            build_package.check_version_consistency(project)
+
+        self.assertIn("invalid VERSION", str(caught.exception))
+
+    def test_version_check_rejects_conflicting_core_assignments(self):
+        project = self.root / "dual-version"
+        (project / "src" / "linux-support").mkdir(parents=True)
+        (project / "src" / "extension").mkdir(parents=True)
+        (project / "src" / "linux-support" / "core.py").write_text(
+            'VERSION = "0.1.0"\nVERSION = "0.2.0"\n', encoding="utf-8"
+        )
+        (project / "src" / "extension" / "info.json").write_text(
+            json.dumps({"version": "0.1.0"}), encoding="utf-8"
+        )
+
+        with self.assertRaises(SystemExit) as caught:
+            build_package.check_version_consistency(project)
+
+        self.assertIn("exactly one valid VERSION", str(caught.exception))
 
 
 if __name__ == "__main__":

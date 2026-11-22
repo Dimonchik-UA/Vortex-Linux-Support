@@ -9,7 +9,7 @@ OVLS consists of two main parts:
 1. **External Linux Support** — Python code that runs outside Vortex.
 2. **Vortex Extension** — JavaScript code loaded inside Vortex.
 
-The target repository structure places these under `src/linux-support/` and `src/extension/`. The current OVLS source layout uses `Development/Linux_Support/` and `Development/Phase9_JSON_IPC/extension/` respectively; these paths are project-internal and may differ from the public repository layout.
+The current source layout uses `src/linux-support/` and `src/extension/`; the standalone installer repackages them as `ovls/` with the Extension in `ovls/extension/`. Historical `Development/Linux_Support/` and `Development/Phase9_JSON_IPC/extension/` paths are legacy fallbacks only: they are a frozen internal snapshot and are not a source for publication.
 
 ## Linux Support Components
 
@@ -79,7 +79,7 @@ Extension logic: initializes IPC context, handles JSON IPC requests (ping, getSt
 ## Installer Components
 
 ### `install.sh`
-Entry point shell script: locates `ovls.py` in supported layouts — standalone/package `ovls/ovls.py`, publication/repository checkout `src/linux-support/ovls.py`, or source/project checkout fallback `Development/Linux_Support/ovls.py` (when present) — and delegates to `package.py` subcommands.
+Entry point shell script: locates `ovls.py` in the standalone/package layout (`ovls/ovls.py`) or the repository checkout (`src/linux-support/ovls.py`), with a legacy fallback to `Development/Linux_Support/ovls.py` (when present), and delegates to `package.py` subcommands.
 
 ### `OVLS Installer.desktop`
 Desktop shortcut that launches `install.sh`.

@@ -22,9 +22,8 @@ set -u
 
 BASE="$(cd "$(dirname "$0")" && pwd)"
 
-# The standalone package keeps its code in ovls/, the project checkout in
-# Development/Linux_Support, and the GitHub checkout in src/linux-support.
-# All three layouts are supported.
+# The standalone package keeps its code in ovls/, the GitHub checkout in
+# src/linux-support/. Development/Linux_Support is a legacy fallback only.
 if [ -f "$BASE/ovls/ovls.py" ]; then
     OVLS="$BASE/ovls/ovls.py"
 elif [ -f "$BASE/src/linux-support/ovls.py" ]; then
@@ -35,7 +34,7 @@ fi
 
 if [ ! -f "$OVLS" ]; then
     echo "ERROR: ovls.py not found next to install.sh (looked in ovls/," >&2
-    echo "       src/linux-support/ and Development/Linux_Support/)." >&2
+    echo "       src/linux-support/ and legacy Development/Linux_Support/)." >&2
     echo "       This folder is not a complete OVLS package: it needs the" >&2
     echo "       ovls/ directory (or src/linux-support/) with the code." >&2
     exit 1

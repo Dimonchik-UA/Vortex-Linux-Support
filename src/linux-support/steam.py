@@ -8,9 +8,6 @@ def find_steam_root():
         os.path.expanduser("~/.local/share/Steam"),
         os.path.expanduser("~/.steam/steam"),
         os.path.expanduser("~/.steam/root"),
-        "/home/deck/.local/share/Steam",
-        "/home/deck/.steam/steam",
-        "/home/deck/.steam/root",
     ]
     for path in candidates:
         if os.path.isdir(path) and os.path.exists(os.path.join(path, "steamapps")):

@@ -26,6 +26,7 @@ OVLS-owned shortcuts after the prefix integration is gone. Running
 and shortcuts without copying the package over itself.
 """
 
+import ast
 import json
 import os
 import re
@@ -160,7 +161,6 @@ def detect_prefix(explicit=None):
     remembered = load_prefix()
     if remembered:
         candidates.append(remembered)
-    candidates.append(Path("/home/deck/Windows/prefix"))
     candidates.append(Path.home() / "Windows" / "prefix")
     steam_root = steam.find_steam_root()
     if steam_root:
@@ -199,7 +199,7 @@ def _write_text(path, text, mode=0o644):
 
 def _read_text(path):
     try:
-        return Path(path).read_text(encoding="utf-8", errors="replace")
+        return Path(path).read_text(encoding="utf-8-sig", errors="replace")
     except OSError:
         return None
 
@@ -340,7 +340,10 @@ def _iter_sources(package_root):
         entry = root / "installer" / ENTRY_SCRIPT
     if entry.is_file():
         yield Path(ENTRY_SCRIPT), entry
-    readme = root / README_NAME
+    # Release packages must ship the installer guide, not the repository README.
+    readme = root / "installer" / README_NAME
+    if not readme.is_file():
+        readme = root / README_NAME
     if readme.is_file():
         yield Path(README_NAME), readme
 
@@ -392,9 +395,10 @@ def _read_manifest(path=None):
 def installed_entry_point():
     """Return ``ovls.py`` of the installed copy.
 
-    The manifest is the truth: the copy may have been installed from this
-    checkout (``Development/Linux_Support``) or from the standalone package
-    (``ovls/``). The module layout is only a fallback.
+    The manifest is the truth: the copy may have been installed from a
+    repository checkout (``src/linux-support``) or from the standalone
+    package (``ovls/``). Historical ``Development/`` paths are legacy
+    fallbacks only, not an active source.
     """
     root = app_root()
     for relative in _read_manifest():
@@ -467,6 +471,32 @@ def _remove_path(target, root):
     return False
 
 
+def _version_from_core_text(text):
+    """Read a single module-level VERSION string without executing the code."""
+    try:
+        tree = ast.parse(text or "")
+    except SyntaxError:
+        return None
+    values = set()
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(isinstance(target, ast.Name) and target.id == "VERSION" for target in node.targets):
+            continue
+        if not (isinstance(node.value, ast.Constant) and isinstance(node.value.value, str)):
+            continue
+        value = node.value.value.strip()
+        if value:
+            values.add(value)
+    return next(iter(values)) if len(values) == 1 else None
+
+
+def _version_from_core_file(path):
+    """Read VERSION from an installed/staged core.py without importing it."""
+    text = _read_text(path)
+    return _version_from_core_text(text) if text is not None else None
+
+
 def manifest_status():
     root = app_root()
     manifest = root / MANIFEST_NAME
@@ -480,9 +510,41 @@ def manifest_status():
         if target.is_symlink() or not target.is_file():
             missing.append(relative)
             continue
-        if _sha256(target) != digest:
+        try:
+            current = _sha256(target)
+        except OSError:
             modified.append(relative)
-    ok = bool(entries) and manifest.is_file() and (root / VERSION_NAME).is_file()
+            continue
+        if current != digest:
+            modified.append(relative)
+    # The installed core.py is the only version source; both project-layout
+    # (src/linux-support/core.py) and standalone-layout (ovls/core.py) installs
+    # are discovered through the manifest, without a second version constant.
+    core_versions = set()
+    for relative in sorted(entries):
+        if Path(relative).name != "core.py":
+            continue
+        core_path = _safe_target(root, relative)
+        if core_path is not None and core_path.is_file():
+            value = _version_from_core_file(core_path)
+            if value:
+                core_versions.add(value)
+    expected_version = next(iter(core_versions)) if len(core_versions) == 1 else None
+    version_path = root / VERSION_NAME
+    version_text = _read_text(version_path)
+    if version_path.is_symlink():
+        version_status = "unsafe"
+    elif version_text is None:
+        version_status = "missing"
+    elif not version_text.strip():
+        version_status = "empty"
+    elif expected_version is None:
+        version_status = "unknown"
+    elif version_text.strip() == expected_version:
+        version_status = "ok"
+    else:
+        version_status = "outdated"
+    ok = bool(entries) and manifest.is_file() and version_status == "ok"
     ok = ok and not missing and not modified and not unsafe
     return {
         "status": "ok" if ok else "attention_required",
@@ -492,6 +554,9 @@ def manifest_status():
         "missing": missing,
         "modified": modified,
         "unsafe": unsafe,
+        "version": version_text.strip() if version_text is not None else None,
+        "expected_version": expected_version,
+        "version_status": version_status,
     }
 
 
@@ -501,6 +566,15 @@ def _stamp():
 
 def _mode(relative):
     return 0o755 if Path(relative).name in ("ovls.py", ENTRY_SCRIPT) else 0o644
+
+
+def _version_from_staged_tree(staging, sources):
+    """Read VERSION from the staged core.py, not from the running process."""
+    for relative, _source in sources:
+        path = staging / Path(relative)
+        if path.name == "core.py" and path.is_file():
+            return _version_from_core_file(path)
+    return None
 
 
 def copy_tree(package_root, stamp=None, dry_run=False):
@@ -522,10 +596,19 @@ def copy_tree(package_root, stamp=None, dry_run=False):
 
         old_text = _read_text(root / MANIFEST_NAME)
         old = _parse_manifest(old_text)
-        old_version = _read_text(root / VERSION_NAME)
+        version_path = root / VERSION_NAME
+        version_is_symlink = version_path.is_symlink()
+        old_version = _read_text(version_path)
+        new_version = _version_from_staged_tree(staging, sources) or core.VERSION
         stale = sorted(set(old) - set(staged))
         changed = sorted(rel for rel in staged if old.get(rel) != staged[rel])
-        if not changed and not stale and old_text is not None:
+        if (
+            not changed
+            and not stale
+            and old_text is not None
+            and not version_is_symlink
+            and (old_version or "").strip() == new_version
+        ):
             return {
                 "status": "unchanged",
                 "app": str(root),
@@ -548,7 +631,10 @@ def copy_tree(package_root, stamp=None, dry_run=False):
         backup = backups_root() / stamp / "app"
         backup.mkdir(parents=True, exist_ok=True)
         _write_text(backup / OLD_MANIFEST, old_text or "")
-        _write_text(backup / OLD_VERSION, old_version or "")
+        # Absence of VERSION.old is the marker that VERSION did not exist;
+        # writing an empty string would turn "absent" into "empty" on rollback.
+        if old_version is not None:
+            _write_text(backup / OLD_VERSION, old_version)
         for relative in sorted(set(old) | set(changed) | set(stale)):
             target = _safe_target(root, relative)
             if target is None or target.is_symlink() or not target.is_file():
@@ -565,14 +651,14 @@ def copy_tree(package_root, stamp=None, dry_run=False):
             for relative in changed:
                 target = _safe_target(root, relative)
                 _copy_file(staging / relative, target)
-                os.chmod(target, _mode(relative))
                 copied_files.append(relative)
+                os.chmod(target, _mode(relative))
             for relative in stale:
                 target = _safe_target(root, relative)
                 if target is not None:
                     _remove_path(target, root)
             _write_text(root / MANIFEST_NAME, _manifest_text(staged))
-            _write_text(root / VERSION_NAME, core.VERSION + "\n")
+            _write_text(root / VERSION_NAME, new_version + "\n")
         except Exception:
             _restore_app(root, backup, copied_files)
             raise
@@ -596,6 +682,10 @@ def _restore_app(root, backup, copied_files=None):
     backup = Path(backup)
     old_text = _read_text(backup / OLD_MANIFEST)
     if not old_text or not old_text.strip():
+        for relative in copied_files or []:
+            target = _safe_target(root, relative)
+            if target is not None:
+                _remove_path(target, root)
         remove_copy(root)
         return
     old = _parse_manifest(old_text)
@@ -621,9 +711,12 @@ def _restore_app(root, backup, copied_files=None):
         _copy_file(saved, target)
         os.chmod(target, _mode(relative))
     _write_text(root / MANIFEST_NAME, old_text)
-    old_version = _read_text(backup / OLD_VERSION)
-    if old_version is not None:
-        _write_text(root / VERSION_NAME, old_version)
+    backup_version = backup / OLD_VERSION
+    version_file = root / VERSION_NAME
+    if backup_version.is_file():
+        _write_text(version_file, _read_text(backup_version) or "")
+    elif version_file.exists() or version_file.is_symlink():
+        version_file.unlink()
 
 
 def remove_copy(root=None):
@@ -725,6 +818,16 @@ def install(package_root=None, prefix=None, dry_run=False, update=False):
             "previous": True,
             "refresh": True,
         }
+        state = manifest_status()
+        if state["version_status"] != "ok" and state["expected_version"]:
+            if dry_run:
+                copy_result["status"] = "would_update"
+                copy_result["version_repair"] = {
+                    "current": state["version"],
+                    "expected": state["expected_version"],
+                }
+            else:
+                _write_text(root / VERSION_NAME, state["expected_version"] + "\n")
     else:
         copy_result = copy_tree(package, stamp=stamp, dry_run=dry_run)
     package_ext = _find_extension_dir(package)

@@ -1,13 +1,13 @@
 """Where the running copy keeps its own code.
 
-Three layouts are legitimate and all must work:
+Three layouts are detected:
 
-  * the working project — sources live in ``Development/Linux_Support``, with
-    the Extension in ``Development/Phase9_JSON_IPC/extension``;
   * the GitHub repository checkout — sources live in ``src/linux-support``,
     with the Extension as a sibling in ``src/extension``;
   * the standalone installer package — sources live in ``ovls/`` next to
-    ``install.sh``, so the folder handed to users stays readable.
+    ``install.sh``, so the folder handed to users stays readable;
+  * the historical ``Development/`` snapshot — legacy fallback only; it is
+    not an active source and must not be used for publication.
 
 Every path is derived from this file's own location, so the modules never
 hard-code either layout.

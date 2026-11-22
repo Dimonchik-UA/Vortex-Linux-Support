@@ -97,9 +97,8 @@ OVLS looks for your Proton prefix in this order:
 
 1. The prefix you explicitly provided (via command-line `--prefix` or Manager selection)
 2. The prefix you previously selected (saved in `~/.config/ovls/config.json`)
-3. `/home/deck/Windows/prefix`
-4. `~/Windows/prefix`
-5. `~/.steam/root/steamapps/compatdata/1712840` (Steam's Vortex compatdata)
+3. `~/Windows/prefix`
+4. `~/.steam/root/steamapps/compatdata/1712840` (Steam's Vortex compatdata)
 
 A valid prefix must contain `pfx/drive_c/users`.
 
