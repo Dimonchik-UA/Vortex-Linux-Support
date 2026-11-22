@@ -59,10 +59,16 @@ class ManagerTest(unittest.TestCase):
         self.manifest.parent.mkdir(parents=True)
         self.manifest.write_text("", encoding="utf-8")
 
-        for name in ("show_message", "show_info", "confirm", "choose_directory"):
+        # Dialog-based actions check launcher._dialog_tool() before using the
+        # functions above. Headless CI has no kdialog/zenity, so without this
+        # mock the guard refuses the action before any assertable call happens.
+        for name in (
+            "show_message", "show_info", "confirm", "choose_directory", "_dialog_tool"
+        ):
             patcher = mock.patch.object(manager.launcher, name)
             setattr(self, name, patcher.start())
             self.addCleanup(patcher.stop)
+        self._dialog_tool.return_value = "kdialog"
         self.confirm.return_value = True
         self.choose_directory.return_value = None
 
@@ -75,6 +81,13 @@ class ManagerTest(unittest.TestCase):
         )
         self.detect_prefix = detect_prefix.start()
         self.addCleanup(detect_prefix.stop)
+
+        # The startup GitHub check is exercised in ManagerGitHubUpdateTest, not
+        # here. Its daemon thread would outlive tearDown and write into the temp
+        # XDG dirs after they are removed.
+        background = mock.patch.object(manager, "_start_background_update_check")
+        background.start()
+        self.addCleanup(background.stop)
 
     def tearDown(self):
         shutil.rmtree(self.root, ignore_errors=True)

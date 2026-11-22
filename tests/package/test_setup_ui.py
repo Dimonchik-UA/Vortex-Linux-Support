@@ -50,10 +50,16 @@ class SetupUiTest(unittest.TestCase):
         self.env.start()
         self.addCleanup(self.env.stop)
 
-        for name in ("show_message", "show_info", "confirm", "choose_directory"):
+        # Dialog-based actions check launcher._dialog_tool() before using the
+        # functions above. Headless CI has no kdialog/zenity, so without this
+        # mock the guard refuses the action before any assertable call happens.
+        for name in (
+            "show_message", "show_info", "confirm", "choose_directory", "_dialog_tool"
+        ):
             patcher = mock.patch.object(setup_ui.launcher, name)
             setattr(self, name, patcher.start())
             self.addCleanup(patcher.stop)
+        self._dialog_tool.return_value = "kdialog"
         self.confirm.return_value = True
         self.choose_directory.return_value = None
 
