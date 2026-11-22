@@ -67,6 +67,17 @@ class InstallerTest(unittest.TestCase):
         (dosdevices / "c:").symlink_to("../drive_c", target_is_directory=True)
         (dosdevices / "z:").symlink_to("/", target_is_directory=True)
 
+        # Host Steam must not leak into the tests. installer.py imports the
+        # steam module, so patch the function on that module; a fake root with
+        # steamapps/ is enough for read_library_folders() to return one library.
+        self.host_steam = self.root / "host-steam"
+        (self.host_steam / "steamapps").mkdir(parents=True)
+        find_steam = mock.patch.object(
+            installer.steam, "find_steam_root", return_value=str(self.host_steam)
+        )
+        self.find_steam_root = find_steam.start()
+        self.addCleanup(find_steam.stop)
+
     def tearDown(self):
         shutil.rmtree(self.root, ignore_errors=True)
 
