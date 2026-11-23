@@ -49,7 +49,7 @@ OVLS does not require root access.
 
 ## Project status
 
-OVLS is in active development. Core user flows (launch, Extension install/update, NXM, mod workflow) have been implemented and tested. Optional features such as SD-card staging and frame-extent measurements are not covered.
+OVLS 0.2.1 is published. Further changes are made only for reproducible defects or by explicit user request. Core user flows (launch, Extension install/update, NXM, mod workflow) have been implemented and tested. Optional features such as SD-card staging and frame-extent measurements are not covered.
 
 ## Installation
 

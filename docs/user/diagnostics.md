@@ -59,7 +59,7 @@ This means your staging folder is on a different Wine disk than your game. **Sol
 
 ### Vortex.exe not found in prefix
 
-OVLS could not find `Vortex.exe` at `pfx/drive_c/Program Files/Vortex/Vortex.exe` in your selected prefix. OVLS accepts a prefix from the config, a known location, or the Steam `compatdata/*` scan only when both `pfx/drive_c/users/` and `Vortex.exe` are present. If nothing is found, Install offers a directory chooser; **Change prefix** always opens it. **Solution:** Install the official Vortex by adding `vortex-setup-*.exe` as a non-Steam game and running it once with a Proton compatibility tool (DW-Proton or GE-Proton are recommended, but not required), or pass `--prefix /path/to/compatdata` explicitly. If another valid prefix is already installed, open **Change prefix** and select its directory manually; found prefixes are not offered as a list there.
+OVLS could not find `Vortex.exe` at `pfx/drive_c/Program Files/Vortex/Vortex.exe` in your selected prefix. OVLS accepts a prefix from the config, a known location, or the Steam `compatdata/*` scan only when both `pfx/drive_c/users/` and `Vortex.exe` are present. If nothing is found, Install offers a directory chooser; **Change prefix** always opens it. **Solution:** Install the official Vortex by adding `vortex-setup-*.exe` as a non-Steam game and running it once with a Proton compatibility tool (DW-Proton or GE-Proton are recommended, but not required), or pass `--prefix /path/to/compatdata` explicitly. If another valid prefix is already installed, open **Change prefix** and select its directory manually. **Change prefix** opens a system dialog for manual directory selection and does not use the automatic list of found prefixes.
 
 ### NXM links do not open in Vortex
 
