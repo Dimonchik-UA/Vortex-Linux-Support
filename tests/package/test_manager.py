@@ -727,6 +727,87 @@ class ManagerGitHubUpdateTest(unittest.TestCase):
         self.assertIn("does not match the release", self.show_message.call_args[0][0])
         self.assertTrue(cache_file.is_file())
 
+    def test_up_to_date_is_not_interpreted_as_network_error(self):
+        self._cache_update_available()
+        prepared = self._prepared()
+        cache_file = updater.cache_path()
+
+        # Simulate: GitHub check returns up_to_date (already installed)
+        up_to_date_result = updater.UpdateCheckResult(
+            status="up_to_date",
+            current_version="0.2.0",
+            latest_version="0.2.0",
+            tag_name="v0.2.0",
+            checked_at=9999999999.0,
+        )
+
+        with mock.patch.object(manager.updater, "check_for_updates", return_value=up_to_date_result), \
+             mock.patch.object(manager.updater, "prepare_release_package", return_value=prepared), \
+             mock.patch.object(manager.package, "install", return_value=self.normal_result) as install, \
+             mock.patch.object(updater, "read_installed_version", return_value="0.2.0"):
+            manager.action_install(prefix=str(self.prefix))
+
+        self.show_info.assert_not_called()
+        self.show_message.assert_called_once()
+        msg = self.show_message.call_args[0][0]
+        self.assertIn("already up to date", msg)
+        self.assertNotIn("Check your connection", msg)
+        install.assert_not_called()
+        # Cache should be invalidated (cleaned up)
+        self.assertFalse(cache_file.exists())
+
+    def test_network_error_still_reported_as_connection_failure(self):
+        self._cache_update_available()
+        prepared = self._prepared()
+        cache_file = updater.cache_path()
+
+        # Simulate: GitHub check returns unknown (network error)
+        network_error_result = updater.UpdateCheckResult(
+            status="unknown",
+            current_version="0.1.0",
+            checked_at=9999999999.0,
+            error="Network error: connection refused",
+        )
+
+        with mock.patch.object(manager.updater, "check_for_updates", return_value=network_error_result), \
+             mock.patch.object(manager.updater, "prepare_release_package", return_value=prepared), \
+             mock.patch.object(manager.package, "install", return_value=self.normal_result) as install:
+            manager.action_install(prefix=str(self.prefix))
+
+        self.show_info.assert_not_called()
+        self.show_message.assert_called_once()
+        msg = self.show_message.call_args[0][0]
+        self.assertIn("Check your connection", msg)
+        install.assert_not_called()
+
+    def test_repeated_click_after_success_does_not_trigger_unnecessary_install(self):
+        # First: simulate successful install that invalidates cache
+        self._cache_update_available()
+        prepared = self._prepared()
+        cache_file = updater.cache_path()
+        self.assertTrue(cache_file.is_file())
+
+        with mock.patch.object(manager.updater, "check_for_updates", return_value=self._cache_update_available()), \
+             mock.patch.object(manager.updater, "prepare_release_package", return_value=prepared), \
+             mock.patch.object(manager.package, "install", return_value=self.normal_result), \
+             mock.patch.object(updater, "read_installed_version", return_value="0.2.0"):
+            manager.action_install(prefix=str(self.prefix))
+
+        self.show_info.assert_called_once()
+        self.assertFalse(cache_file.exists())
+
+        # Second click: cache is gone (up_to_date or absent), should go to self-refresh
+        self.show_info.reset_mock()
+        self.show_message.reset_mock()
+        with mock.patch.object(manager.package, "install", return_value=self.normal_result) as install, \
+             mock.patch.object(manager.updater, "prepare_release_package") as prepare:
+            manager.action_install(prefix=str(self.prefix))
+
+        prepare.assert_not_called()
+        install.assert_called_once_with(prefix=str(self.prefix), update=True)
+        self.show_info.assert_called_once()
+        self.show_message.assert_not_called()
+
     def test_cache_clear_failure_keeps_install_success_but_warns(self):
         self._cache_update_available()
         prepared = self._prepared()

@@ -2,6 +2,14 @@
 
 This file records user-facing changes to OVLS. The newest version is listed first.
 
+## 0.2.2
+
+Corrects a misleading error message when re-checking for updates after a successful installation.
+
+### Fixed
+
+- False "no internet" error. Manager no longer reports a connection error when the installed version is already up to date; it now correctly states that OVLS is already up to date.
+
 ## 0.2.1
 
 Corrects problems in the update mechanism discovered after the 0.2.0 release.

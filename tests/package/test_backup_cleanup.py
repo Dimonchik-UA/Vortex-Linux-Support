@@ -254,7 +254,7 @@ class BackupCleanupTest(unittest.TestCase):
         support = pkg_root / "src" / "linux-support"
         support.mkdir(parents=True)
         (support / "ovls.py").write_text("print('test')\n")
-        (support / "core.py").write_text('VERSION = "0.2.1"\n')
+        (support / "core.py").write_text('VERSION = "0.2.2"\n')
 
         prefix = self.root / "compatdata"
         pfx = prefix / "pfx"
@@ -327,7 +327,7 @@ class BackupCleanupTest(unittest.TestCase):
         support = pkg_root / "src" / "linux-support"
         support.mkdir(parents=True)
         (support / "ovls.py").write_text("print('test')\n")
-        (support / "core.py").write_text('VERSION = "0.2.1"\n')
+        (support / "core.py").write_text('VERSION = "0.2.2"\n')
 
         prefix = self.root / "compatdata"
         pfx = prefix / "pfx"

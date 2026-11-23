@@ -218,7 +218,18 @@ def _github_release_install(prefix):
         except Exception as exc:
             return None, f"Could not check for a GitHub update:\n{exc}"
 
-        if not fresh or getattr(fresh, "status", None) != "update_available":
+        status = getattr(fresh, "status", None)
+        if status == "up_to_date":
+            # Installed version already equals the latest release. This is not a
+            # network error; clear any stale cache entry so the next check is
+            # clean and self-refresh can proceed without a false prompt.
+            try:
+                updater.invalidate_cache()
+            except OSError:
+                pass
+            return None, "OVLS is already up to date. No update needed."
+
+        if status != "update_available":
             return None, (
                 "GitHub update is not available right now. "
                 "Check your connection and try again later."
