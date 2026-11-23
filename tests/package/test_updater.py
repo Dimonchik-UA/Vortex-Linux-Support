@@ -296,6 +296,47 @@ class CacheTests(UpdaterTestBase):
         self.assertIsNone(updater.load_cache(path=path, now=1000.0 + 3601, ttl=3600))
         self.assertIsNotNone(updater.load_cache(path=path, now=1000.0 + 3599, ttl=3600))
 
+    def test_invalidate_cache_removes_stale_cache(self):
+        path = updater.cache_path()
+        updater.save_cache(
+            updater.UpdateCheckResult(status="update_available", checked_at=time.time()),
+            path=path,
+        )
+        self.assertTrue(path.is_file())
+
+        updater.invalidate_cache()
+
+        self.assertFalse(path.exists())
+        self.assertIsNone(updater.load_cache())
+
+    def test_invalidate_cache_is_noop_when_file_is_absent(self):
+        path = updater.cache_path()
+        self.assertFalse(path.exists())
+
+        updater.invalidate_cache()
+
+        self.assertFalse(path.exists())
+
+    def test_newer_release_is_detected_after_invalidation(self):
+        updater.save_cache(
+            updater.UpdateCheckResult(
+                status="update_available",
+                current_version="0.1.0",
+                latest_version="0.2.0",
+                checked_at=time.time(),
+            )
+        )
+        updater.invalidate_cache()
+        payload = self._release_payload(version="0.3.0", tag="v0.3.0")
+        opener = _fake_urlopen_factory({updater.RELEASES_LATEST_URL: payload})
+
+        with mock.patch.object(updater, "current_local_version", return_value="0.2.0"):
+            result = updater.check_for_updates(opener=opener)
+
+        self.assertEqual(result.status, "update_available")
+        self.assertEqual(result.latest_version, "0.3.0")
+        self.assertFalse(result.from_cache)
+
 
 class ReleaseCheckTests(UpdaterTestBase):
     def test_check_for_updates_update_available(self):

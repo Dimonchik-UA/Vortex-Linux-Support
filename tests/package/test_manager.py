@@ -434,6 +434,24 @@ class ManagerGitHubUpdateTest(unittest.TestCase):
         manager._update_check_done.set()
         self.addCleanup(self._reset_update_check_state)
 
+        # Remember every background check thread, including those started
+        # inside manager.run(), so teardown can join them before XDG dirs go.
+        self._bg_threads = []
+        self._release_events = []
+        real_start = manager._start_background_update_check
+
+        def _tracked_start():
+            thread = real_start()
+            if thread is not None:
+                self._bg_threads.append(thread)
+            return thread
+
+        start_patch = mock.patch.object(
+            manager, "_start_background_update_check", side_effect=_tracked_start
+        )
+        start_patch.start()
+        self.addCleanup(start_patch.stop)
+
         self.manifest = package.app_root() / package.MANIFEST_NAME
         self.manifest.parent.mkdir(parents=True, exist_ok=True)
         self.manifest.write_text("", encoding="utf-8")
@@ -472,6 +490,21 @@ class ManagerGitHubUpdateTest(unittest.TestCase):
         manager._update_check_done.set()
 
     def tearDown(self):
+        # Unblock slow_check first, then wait for the worker's own completion
+        # signal and join its thread. Only after that is it safe to remove the
+        # temporary XDG tree: no worker can recreate update-check.json there.
+        for event in self._release_events:
+            event.set()
+        if self._bg_threads or manager._update_check_inflight:
+            self.assertTrue(
+                manager._update_check_done.wait(timeout=5),
+                "background update check did not finish before teardown",
+            )
+        for thread in self._bg_threads:
+            thread.join(timeout=5)
+            self.assertFalse(
+                thread.is_alive(), "background update-check thread still running"
+            )
         self._reset_update_check_state()
         shutil.rmtree(self.root, ignore_errors=True)
 
@@ -530,10 +563,13 @@ class ManagerGitHubUpdateTest(unittest.TestCase):
     def test_run_starts_background_check_without_blocking_menu(self):
         started = threading.Event()
         release = threading.Event()
+        finished = threading.Event()
+        self._release_events.append(release)
 
         def slow_check(*_a, **_k):
             started.set()
-            release.wait(timeout=2)
+            release.wait(timeout=5)
+            finished.set()
             return updater.UpdateCheckResult(status="unknown", checked_at=1.0)
 
         with mock.patch.object(manager.updater, "check_for_updates", side_effect=slow_check) as check, \
@@ -543,11 +579,7 @@ class ManagerGitHubUpdateTest(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertTrue(started.wait(timeout=1), "background update check did not start")
         release.set()
-        # give daemon thread a moment to finish
-        for _ in range(50):
-            if check.called:
-                break
-            time.sleep(0.01)
+        self.assertTrue(finished.wait(timeout=5), "background check did not finish")
         self.assertTrue(check.called)
 
     def test_run_network_error_in_background_does_not_break_manager(self):
@@ -618,7 +650,8 @@ class ManagerGitHubUpdateTest(unittest.TestCase):
         self.confirm.return_value = True
         with mock.patch.object(manager.updater, "check_for_updates", return_value=fresh) as force_check, \
              mock.patch.object(manager.updater, "prepare_release_package", return_value=prepared) as prepare, \
-             mock.patch.object(manager.package, "install", return_value=gh_result) as install:
+             mock.patch.object(manager.package, "install", return_value=gh_result) as install, \
+             mock.patch.object(updater, "read_installed_version", return_value="0.2.0"):
             manager.action_install(prefix=str(self.prefix))
 
         force_check.assert_called_once_with(force=True)
@@ -632,6 +665,123 @@ class ManagerGitHubUpdateTest(unittest.TestCase):
         self.show_info.assert_called_once()
         self.assertIn("0.2.0", self.show_info.call_args[0][0])
         self.show_message.assert_not_called()
+
+    def test_successful_github_update_invalidates_stale_cache(self):
+        self._cache_update_available()
+        prepared = self._prepared()
+        cache_file = updater.cache_path()
+        self.assertTrue(cache_file.is_file())
+
+        with mock.patch.object(manager.updater, "check_for_updates", return_value=self._cache_update_available()), \
+             mock.patch.object(manager.updater, "prepare_release_package", return_value=prepared), \
+             mock.patch.object(manager.package, "install", return_value=self.normal_result), \
+             mock.patch.object(updater, "read_installed_version", return_value="0.2.0"):
+            manager.action_install(prefix=str(self.prefix))
+
+        self.show_info.assert_called_once()
+        self.assertFalse(cache_file.exists())
+        self.assertIsNone(updater.load_cache())
+
+    def test_failed_github_update_keeps_cache_untouched(self):
+        self._cache_update_available()
+        prepared = self._prepared()
+        cache_file = updater.cache_path()
+
+        with mock.patch.object(manager.updater, "check_for_updates", return_value=self._cache_update_available()), \
+             mock.patch.object(manager.updater, "prepare_release_package", return_value=prepared), \
+             mock.patch.object(manager.package, "install", side_effect=OSError("disk full")):
+            manager.action_install(prefix=str(self.prefix))
+
+        self.show_message.assert_called_once()
+        self.assertTrue(cache_file.is_file())
+        self.assertIsNotNone(updater.load_cache())
+
+    def test_successful_self_refresh_invalidates_stale_cache(self):
+        updater.save_cache(
+            updater.UpdateCheckResult(
+                status="up_to_date",
+                current_version="0.1.0",
+                latest_version="0.1.0",
+                checked_at=9999999999.0,
+            )
+        )
+        cache_file = updater.cache_path()
+        with mock.patch.object(manager.package, "install", return_value=self.normal_result):
+            manager.action_install(prefix=str(self.prefix))
+
+        self.show_info.assert_called_once()
+        self.assertFalse(cache_file.exists())
+
+    def test_installed_version_mismatch_is_reported_as_failure(self):
+        self._cache_update_available()
+        prepared = self._prepared()
+        cache_file = updater.cache_path()
+
+        with mock.patch.object(manager.updater, "check_for_updates", return_value=self._cache_update_available()), \
+             mock.patch.object(manager.updater, "prepare_release_package", return_value=prepared), \
+             mock.patch.object(manager.package, "install", return_value=self.normal_result), \
+             mock.patch.object(updater, "read_installed_version", return_value="0.1.0"):
+            manager.action_install(prefix=str(self.prefix))
+
+        self.show_info.assert_not_called()
+        self.assertIn("does not match the release", self.show_message.call_args[0][0])
+        self.assertTrue(cache_file.is_file())
+
+    def test_cache_clear_failure_keeps_install_success_but_warns(self):
+        self._cache_update_available()
+        prepared = self._prepared()
+
+        def fail_to_clear():
+            raise OSError("permission denied")
+
+        with mock.patch.object(manager.updater, "check_for_updates", return_value=self._cache_update_available()), \
+             mock.patch.object(manager.updater, "prepare_release_package", return_value=prepared), \
+             mock.patch.object(manager.package, "install", return_value=self.normal_result), \
+             mock.patch.object(updater, "read_installed_version", return_value="0.2.0"), \
+             mock.patch.object(updater, "invalidate_cache", side_effect=fail_to_clear):
+            manager.action_install(prefix=str(self.prefix))
+
+        self.show_info.assert_called_once()
+        self.assertIn("could not be cleared", self.show_info.call_args[0][0])
+
+    def test_slow_background_check_cannot_restore_cache_after_install(self):
+        started = threading.Event()
+        release = threading.Event()
+        install_called = threading.Event()
+        self._release_events.append(release)
+        stale = updater.UpdateCheckResult(
+            status="update_available",
+            current_version="0.1.0",
+            latest_version="0.2.0",
+            checked_at=1.0,
+        )
+
+        def slow_check(*_a, **_k):
+            started.set()
+            release.wait(timeout=5)
+            updater.save_cache(stale)
+            return stale
+
+        def fake_install(*_a, **_k):
+            install_called.set()
+            return self.normal_result
+
+        def release_after_install():
+            self.assertTrue(install_called.wait(timeout=5))
+            release.set()
+
+        threading.Thread(target=release_after_install, daemon=True).start()
+        with mock.patch.object(manager, "_UPDATE_CHECK_WAIT_TIMEOUT", 0.05), \
+             mock.patch.object(manager.updater, "check_for_updates", side_effect=slow_check), \
+             mock.patch.object(manager.package, "install", side_effect=fake_install):
+            thread = manager._start_background_update_check()
+            self.assertIsNotNone(thread)
+            self.assertTrue(started.wait(timeout=1), "background check did not start")
+            manager.action_install(prefix=str(self.prefix))
+
+        thread.join(timeout=5)
+        self.assertFalse(thread.is_alive())
+        self.assertFalse(updater.cache_path().exists(), "slow check recreated the stale cache")
 
     def test_sha256_error_does_not_install_and_cleans_up(self):
         self._cache_update_available()
@@ -696,10 +846,12 @@ class ManagerGitHubUpdateTest(unittest.TestCase):
     def test_install_waits_for_inflight_check_and_shows_update(self):
         started = threading.Event()
         release = threading.Event()
+        waiting = threading.Event()
+        self._release_events.append(release)
 
         def slow_check(*_a, **_k):
             started.set()
-            release.wait(timeout=2)
+            release.wait(timeout=5)
             info = updater.UpdateCheckResult(
                 status="update_available",
                 current_version="0.1.0",
@@ -714,21 +866,28 @@ class ManagerGitHubUpdateTest(unittest.TestCase):
             updater.save_cache(info)
             return info
 
+        real_wait = manager._wait_for_background_update_check
+
+        def _note_wait(*_a, **_k):
+            waiting.set()
+            return real_wait(*_a, **_k)
+
+        def _release_when_waiting():
+            self.assertTrue(waiting.wait(timeout=5))
+            release.set()
+
         self.confirm.return_value = False  # decline GitHub update, keep self-refresh
         with mock.patch.object(manager, "_UPDATE_CHECK_WAIT_TIMEOUT", 1.0), \
+             mock.patch.object(manager, "_wait_for_background_update_check", side_effect=_note_wait), \
              mock.patch.object(manager.updater, "check_for_updates", side_effect=slow_check) as check, \
              mock.patch.object(manager.package, "install", return_value=self.normal_result) as install, \
              mock.patch.object(manager.updater, "prepare_release_package") as prepare:
             manager._start_background_update_check()
             self.assertTrue(started.wait(timeout=1), "background check did not start")
-
-            def _release_soon():
-                time.sleep(0.1)
-                release.set()
-
-            threading.Thread(target=_release_soon, daemon=True).start()
+            threading.Thread(target=_release_when_waiting, daemon=True).start()
             manager.action_install(prefix=str(self.prefix))
 
+        self.assertTrue(waiting.is_set(), "action_install did not wait for the in-flight check")
         check.assert_called_once_with(force=False)
         prepare.assert_not_called()
         install.assert_called_once_with(prefix=str(self.prefix), update=True)
@@ -738,58 +897,90 @@ class ManagerGitHubUpdateTest(unittest.TestCase):
     def test_install_timeout_during_inflight_check_falls_back_without_parallel_request(self):
         started = threading.Event()
         release = threading.Event()
+        install_called = threading.Event()
         calls = {"count": 0}
+        self._release_events.append(release)
 
         def slow_check(*_a, **_k):
             calls["count"] += 1
             started.set()
-            release.wait(timeout=2)
+            release.wait(timeout=5)
             info = updater.UpdateCheckResult(status="unknown", checked_at=9999999999.0, error="timeout")
-            try:
-                updater.save_cache(info)
-            except Exception:
-                pass
+            updater.save_cache(info)
             return info
 
+        def fake_install(*_a, **_k):
+            install_called.set()
+            return self.normal_result
+
+        def release_after_install():
+            self.assertTrue(install_called.wait(timeout=5))
+            release.set()
+
+        threading.Thread(target=release_after_install, daemon=True).start()
         with mock.patch.object(manager, "_UPDATE_CHECK_WAIT_TIMEOUT", 0.05), \
              mock.patch.object(manager.updater, "check_for_updates", side_effect=slow_check), \
-             mock.patch.object(manager.package, "install", return_value=self.normal_result) as install, \
+             mock.patch.object(manager.package, "install", side_effect=fake_install) as install, \
              mock.patch.object(manager.updater, "prepare_release_package") as prepare:
             manager._start_background_update_check()
             self.assertTrue(started.wait(timeout=1), "background check did not start")
             manager.action_install(prefix=str(self.prefix))
-            release.set()
 
         self.assertEqual(calls["count"], 1, "parallel/repeated background check started")
         prepare.assert_not_called()
         install.assert_called_once_with(prefix=str(self.prefix), update=True)
         self.confirm.assert_not_called()
 
+    def test_background_check_finishes_before_temp_tree_is_removed(self):
+        release = threading.Event()
+        finished = threading.Event()
+        self._release_events.append(release)
+
+        def slow_check(*_a, **_k):
+            release.wait(timeout=5)
+            updater.save_cache(updater.UpdateCheckResult(status="unknown", checked_at=1.0))
+            finished.set()
+            return updater.UpdateCheckResult(status="unknown", checked_at=1.0)
+
+        cache_file = updater.cache_path()
+        with mock.patch.object(manager.updater, "check_for_updates", side_effect=slow_check):
+            thread = manager._start_background_update_check()
+            self.assertIsNotNone(thread)
+            self.assertFalse(cache_file.exists())
+            release.set()
+            self.assertTrue(finished.wait(timeout=5), "slow_check did not finish")
+            thread.join(timeout=5)
+            self.assertFalse(thread.is_alive())
+            self.assertTrue(cache_file.is_file())
+            self.assertEqual(len(self._bg_threads), 1)
+
+        self.assertFalse(manager._update_check_inflight)
+        self.assertTrue(manager._update_check_done.is_set())
+
     def test_background_check_not_started_in_parallel_when_inflight(self):
         started = threading.Event()
         release = threading.Event()
         calls = {"count": 0}
+        self._release_events.append(release)
 
         def slow_check(*_a, **_k):
             calls["count"] += 1
             started.set()
-            release.wait(timeout=2)
+            release.wait(timeout=5)
             return updater.UpdateCheckResult(status="unknown", checked_at=1.0)
 
-        try:
-            with mock.patch.object(manager.updater, "check_for_updates", side_effect=slow_check):
-                first = manager._start_background_update_check()
-                self.assertIsNotNone(first)
-                self.assertTrue(started.wait(timeout=1), "background check did not start")
-                second = manager._start_background_update_check()
-                self.assertIsNone(second)
-                # brief window to catch accidental parallel start
-                time.sleep(0.05)
-                self.assertEqual(calls["count"], 1)
-        finally:
-            release.set()
-            if first is not None:
-                first.join(timeout=1)
+        with mock.patch.object(manager.updater, "check_for_updates", side_effect=slow_check):
+            first = manager._start_background_update_check()
+            self.assertIsNotNone(first)
+            self.assertTrue(started.wait(timeout=1), "background check did not start")
+            second = manager._start_background_update_check()
+            self.assertIsNone(second)
+            self.assertEqual(calls["count"], 1)
+
+        release.set()
+        if first is not None:
+            first.join(timeout=5)
+            self.assertFalse(first.is_alive())
 
 
 if __name__ == "__main__":

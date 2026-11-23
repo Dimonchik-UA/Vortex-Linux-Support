@@ -285,6 +285,12 @@ def save_cache(result: UpdateCheckResult, path: Optional[Path] = None) -> None:
             pass
 
 
+def invalidate_cache(path: Optional[Path] = None) -> None:
+    """Remove the cached update check so the next check fetches fresh data."""
+    path = Path(path) if path is not None else cache_path()
+    path.unlink(missing_ok=True)
+
+
 # ---------------------------------------------------------------------------
 # HTTP helpers
 # ---------------------------------------------------------------------------

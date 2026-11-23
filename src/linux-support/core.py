@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 APP_NAME = "OVLS Linux Support"
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 
 # Log rotation constants
 LOG_MAX_BYTES = 1_000_000  # 1 MB

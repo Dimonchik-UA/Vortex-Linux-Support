@@ -230,6 +230,13 @@ def _github_release_install(prefix):
             prefix=str(prefix),
             update=True,
         )
+        expected_version = updater.normalize_version(prepared.version) or prepared.version
+        installed_version = updater.read_installed_version()
+        if installed_version != expected_version:
+            raise ValueError(
+                f"Installed OVLS version does not match the release: "
+                f"expected {expected_version}, found {installed_version}"
+            )
         # Attach release metadata for user-facing summary.
         result = dict(result)
         result["github_update"] = {
@@ -326,6 +333,16 @@ def action_install(prefix=None):
             launcher.show_message(f"Installation failed:\n{exc}")
             return
 
+    # A startup check may still be writing its result. Let it finish before
+    # clearing the cache, otherwise it can recreate a stale "update_available"
+    # entry after this successful install.
+    _wait_for_background_update_check(timeout=updater.DEFAULT_TIMEOUT_SECONDS + 2)
+    try:
+        updater.invalidate_cache()
+        cache_warning = None
+    except OSError as exc:
+        cache_warning = f"Update cache could not be cleared: {exc}"
+
     shortcuts = result.get("shortcuts") or {}
     gh = result.get("github_update") or {}
     title = "Components updated."
@@ -344,6 +361,8 @@ def action_install(prefix=None):
     notes = _shortcut_notes(shortcuts)
     if notes:
         lines.extend(["", *notes])
+    if cache_warning:
+        lines.extend(["", cache_warning])
     if shortcuts.get("status") == "ok":
         launcher.show_info("\n".join(lines))
     else:

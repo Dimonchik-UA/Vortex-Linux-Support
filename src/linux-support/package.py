@@ -648,7 +648,11 @@ def copy_tree(package_root, stamp=None, dry_run=False):
         version_path = root / VERSION_NAME
         version_is_symlink = version_path.is_symlink()
         old_version = _read_text(version_path)
-        new_version = _version_from_staged_tree(staging, sources) or core.VERSION
+        new_version = _version_from_staged_tree(staging, sources)
+        if not new_version:
+            raise ValueError(
+                f"staged package has no readable VERSION in core.py: {package}"
+            )
         stale = sorted(set(old) - set(staged))
         changed = sorted(rel for rel in staged if old.get(rel) != staged[rel])
         if (
@@ -915,6 +919,15 @@ def install(package_root=None, prefix=None, dry_run=False, update=False):
             str(package),
             ovls_py=str(installed_entry_point()),
         )
+        state = manifest_status()
+        if state["status"] != "ok":
+            raise ValueError(
+                "Installed copy failed post-install verification "
+                f"({state['status']}, version={state['version']}, "
+                f"expected={state['expected_version']}, "
+                f"missing={state['missing']}, modified={state['modified']}, "
+                f"unsafe={state['unsafe']})"
+            )
     except Exception:
         if not same:
             if copy_result.get("backup"):

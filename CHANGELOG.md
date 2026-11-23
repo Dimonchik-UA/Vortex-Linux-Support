@@ -2,6 +2,17 @@
 
 This file records user-facing changes to OVLS. The newest version is listed first.
 
+## 0.2.1
+
+Corrects problems in the update mechanism discovered after the 0.2.0 release.
+
+### Fixed
+
+- Cache invalidation after successful update. Manager no longer offers an update that has already been installed.
+- Strict staged-version validation. Reject packages without a readable staged version instead of falling back to the running process version.
+- Post-install manifest verification with rollback when verification fails.
+- Prevent background update checks from restoring stale update cache after a successful installation.
+
 ## 0.2.0
 
 OVLS finds real Vortex installations in Steam prefixes, keeps manual prefix selection in `Change prefix`, and no longer forces a Proton version.
