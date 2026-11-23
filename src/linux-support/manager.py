@@ -21,6 +21,7 @@ import desktop
 import installer
 import launcher
 import package
+import setup_ui
 import updater
 
 TITLE = "OVLS Manager"
@@ -61,7 +62,7 @@ def choose_action():
         for key, label in ACTIONS:
             arguments.extend([key, label])
     else:
-        arguments = ["--menu", "Выберите действие"]
+        arguments = ["--menu", "Select an action"]
         for key, label in ACTIONS:
             arguments.extend([key, label])
     result = launcher._run_dialog(tool, arguments)
@@ -77,17 +78,45 @@ def current_prefix():
 def _require_prefix():
     prefix = current_prefix()
     if prefix:
+        saved = package.load_prefix()
+        try:
+            if not saved or Path(saved).expanduser().resolve() != prefix:
+                package.save_prefix(prefix)
+        except OSError as exc:
+            launcher.show_message(f"Could not save the prefix setting:\n{exc}")
+            return None
         return prefix
+    candidates = package.detect_prefix_candidates()
+    if len(candidates) > 1:
+        prefix = setup_ui.choose_prefix(candidates)
+        if not prefix:
+            return None
+        try:
+            package.save_prefix(prefix)
+        except OSError as exc:
+            launcher.show_message(f"Could not save the prefix setting:\n{exc}")
+            return None
+        return prefix
+    if not candidates:
+        launcher.show_message(
+            "Vortex not found. Add vortex-setup-*.exe as a non-Steam game in Steam, "
+            "select a Proton compatibility tool (DW-Proton or GE-Proton are recommended) "
+            "and run it once, or pass --prefix /path/to/compatdata."
+        )
     chosen = launcher.choose_directory()
     if not chosen:
         return None
     if not package.is_prefix(chosen):
-        launcher.show_message(f"Это не prefix Proton (нет pfx/drive_c/users):\n{chosen}")
+        launcher.show_message(
+            "This is not a valid Vortex prefix. It must contain "
+            "pfx/drive_c/users/ and pfx/drive_c/Program Files/Vortex/Vortex.exe:\n"
+            f"{chosen}"
+        )
         return None
     try:
         package.save_prefix(chosen)
     except OSError as exc:
-        launcher.show_message(f"Не удалось сохранить настройку:\n{exc}")
+        launcher.show_message(f"Could not save the prefix setting:\n{exc}")
         return None
     return Path(chosen).expanduser().resolve()
 
@@ -104,11 +133,11 @@ def _shortcut_notes(shortcut_result):
     lines = []
     skipped = shortcut_result.get("skipped") or []
     if skipped:
-        lines.append("Ярлыки не перезаписаны (файл уже существует и не принадлежит OVLS):")
+        lines.append("Shortcuts were not overwritten (the file already exists and is not owned by OVLS):")
         lines.extend(f"  {item['path']}" for item in skipped)
     if shortcut_result.get("status") != "ok" and not skipped:
-        reason = shortcut_result.get("reason") or "не удалось создать все ярлыки"
-        lines.append(f"Ярлыки: {reason}")
+        reason = shortcut_result.get("reason") or "could not create all shortcuts"
+        lines.append(f"Shortcuts: {reason}")
     return lines
 
 
@@ -187,12 +216,12 @@ def _github_release_install(prefix):
         try:
             fresh = updater.check_for_updates(force=True)
         except Exception as exc:
-            return None, f"Не удалось проверить обновление GitHub:\n{exc}"
+            return None, f"Could not check for a GitHub update:\n{exc}"
 
         if not fresh or getattr(fresh, "status", None) != "update_available":
             return None, (
-                "Обновление из GitHub сейчас недоступно. "
-                "Проверьте соединение и повторите попытку позже."
+                "GitHub update is not available right now. "
+                "Check your connection and try again later."
             )
 
         prepared = updater.prepare_release_package(fresh)
@@ -210,19 +239,19 @@ def _github_release_install(prefix):
         }
         return result, None
     except updater.VerificationError as exc:
-        return None, f"Проверка целостности обновления не пройдена (SHA-256):\n{exc}"
+        return None, f"Update integrity check failed (SHA-256):\n{exc}"
     except updater.PackageFormatError as exc:
-        return None, f"Пакет обновления повреждён или имеет неверный формат:\n{exc}"
+        return None, f"Update package is corrupt or has an invalid format:\n{exc}"
     except updater.NetworkError as exc:
-        return None, f"Ошибка сети при загрузке обновления:\n{exc}"
+        return None, f"Network error while downloading the update:\n{exc}"
     except updater.ReleaseNotFoundError as exc:
-        return None, f"Релиз обновления недоступен:\n{exc}"
+        return None, f"Update release is not available:\n{exc}"
     except updater.UpdaterError as exc:
-        return None, f"Не удалось подготовить обновление:\n{exc}"
+        return None, f"Could not prepare the update:\n{exc}"
     except (OSError, ValueError) as exc:
-        return None, f"Установка обновления не выполнена:\n{exc}"
+        return None, f"Update installation failed:\n{exc}"
     except Exception as exc:
-        return None, f"Не удалось установить обновление:\n{exc}"
+        return None, f"Could not install the update:\n{exc}"
     finally:
         if prepared is not None:
             try:
@@ -236,19 +265,19 @@ def action_install(prefix=None):
     if not prefix:
         return
     if not launcher.vortex_exe(prefix).is_file():
-        launcher.show_message(f"Vortex.exe не найден в prefix:\n{launcher.vortex_exe(prefix)}")
+        launcher.show_message(f"Vortex.exe not found in prefix:\n{launcher.vortex_exe(prefix)}")
         return
     if not (package.app_root() / package.MANIFEST_NAME).is_file():
         launcher.show_message(
-            "OVLS не установлен в ~/.local/share/ovls.\n\n"
-            "Manager работает из установленной копии и после удаления не может "
-            "восстановить её сам. Запустите в терминале из каталога пакета:\n"
+            "OVLS is not installed in ~/.local/share/ovls.\n\n"
+            "Manager is running from the installed copy and cannot restore "
+            "it after removal. Run it from the package directory in a terminal:\n"
             "bash install.sh install"
         )
         return
     info = installer.detect(str(prefix))
     if info["running_vortex"]:
-        launcher.show_message("Vortex запущен. Закройте его и повторите.")
+        launcher.show_message("Vortex is running. Close it and try again.")
         return
 
     # If a verified GitHub release update is available, offer it through the
@@ -270,14 +299,14 @@ def action_install(prefix=None):
             available = None
 
     if available is not None:
-        current = available.current_version or package.read_installed_version() or "неизвестна"
-        latest = available.latest_version or "неизвестна"
+        current = available.current_version or updater.read_installed_version() or "unknown"
+        latest = available.latest_version or "unknown"
         use_github = launcher.confirm(
-            "Доступно обновление OVLS из GitHub Releases.\n\n"
-            f"Установленная версия: {current}\n"
-            f"Доступная версия: {latest}\n\n"
-            "Скачать, проверить (SHA-256) и установить это обновление сейчас?\n\n"
-            "При отказе будет выполнено обычное обновление компонентов из установленной копии."
+            "An OVLS update is available from GitHub Releases.\n\n"
+            f"Installed version: {current}\n"
+            f"Available version: {latest}\n\n"
+            "Download, verify (SHA-256) and install this update now?\n\n"
+            "If you decline, the usual component update from the installed copy will run."
         )
         if use_github:
             result, error = _github_release_install(str(prefix))
@@ -288,29 +317,29 @@ def action_install(prefix=None):
             try:
                 result = _self_refresh_install(str(prefix))
             except (OSError, ValueError) as exc:
-                launcher.show_message(f"Установка не выполнена:\n{exc}")
+                launcher.show_message(f"Installation failed:\n{exc}")
                 return
     else:
         try:
             result = _self_refresh_install(str(prefix))
         except (OSError, ValueError) as exc:
-            launcher.show_message(f"Установка не выполнена:\n{exc}")
+            launcher.show_message(f"Installation failed:\n{exc}")
             return
 
     shortcuts = result.get("shortcuts") or {}
     gh = result.get("github_update") or {}
-    title = "Компоненты обновлены."
+    title = "Components updated."
     if gh.get("status") == "installed":
-        version = gh.get("version") or "новая версия"
-        title = f"Обновление OVLS установлено ({version})."
+        version = gh.get("version") or "new version"
+        title = f"OVLS update installed ({version})."
 
     lines = [
         title,
         "",
         f"Extension: {result['installation']['extension']['status']}",
         f"NXM: {result['nxm_handler']['status']}",
-        f"Ярлыки: {shortcuts.get('status', 'unknown')}",
-        f"Установленная копия: {result['copy']['app']}",
+        f"Shortcuts: {shortcuts.get('status', 'unknown')}",
+        f"Installed copy: {result['copy']['app']}",
     ]
     notes = _shortcut_notes(shortcuts)
     if notes:
@@ -326,20 +355,20 @@ def action_verify():
     if not prefix:
         return
     if not launcher.vortex_exe(prefix).is_file():
-        launcher.show_message(f"Vortex.exe не найден в prefix:\n{launcher.vortex_exe(prefix)}")
+        launcher.show_message(f"Vortex.exe not found in prefix:\n{launcher.vortex_exe(prefix)}")
         return
     try:
         result = package.verify(prefix=str(prefix))
     except (OSError, ValueError) as exc:
-        launcher.show_message(f"Проверка не выполнена:\n{exc}")
+        launcher.show_message(f"Verification failed:\n{exc}")
         return
     ok = result["status"] == "ok"
     lines = [
-        "Проверка завершена: " + ("OK" if ok else "требует внимания"),
+        "Verification completed: " + ("OK" if ok else "needs attention"),
         "",
         f"Prefix: {result.get('prefix') or prefix}",
-        f"Копия кода: {result['copy']['status']}",
-        f"Ярлыки: {result['shortcuts']['status']}",
+        f"Code copy: {result['copy']['status']}",
+        f"Shortcuts: {result['shortcuts']['status']}",
     ]
     installed = result.get("installation")
     if installed:
@@ -352,7 +381,7 @@ def action_verify():
             ]
         )
     elif result.get("reason"):
-        lines.append(f"Причина: {result['reason']}")
+        lines.append(f"Reason: {result['reason']}")
     for key, item in result["shortcuts"]["files"].items():
         if item["status"] != "ok":
             lines.append(f"  {key}: {item['status']} — {item['path']}")
@@ -366,33 +395,33 @@ def action_verify():
 def action_uninstall():
     prefix = current_prefix()
     if not prefix:
-        launcher.show_message("Prefix не настроен. Сначала выберите его через Change prefix.")
+        launcher.show_message("Prefix is not configured. Select it first with Change prefix.")
         return
     if not _confirm(
-        "Удалить компоненты OVLS (Extension, NXM, ярлыки)?\n\n"
-        "Vortex, моды, настройки и prefix останутся без изменений."
+        "Remove OVLS components (Extension, NXM, shortcuts)?\n\n"
+        "Vortex, mods, settings and prefix will remain unchanged."
     ):
         return
     try:
         result = package.uninstall(prefix=str(prefix))
     except (OSError, ValueError) as exc:
-        launcher.show_message(f"Удаление не выполнено:\n{exc}")
+        launcher.show_message(f"Removal failed:\n{exc}")
         return
     if result.get("status") == "blocked":
         launcher.show_message(
             result.get("message")
-            or "Удаление заблокировано. Компоненты, ярлыки и настройки сохранены."
+            or "Removal blocked. Components, shortcuts and settings were kept."
         )
         return False
     shortcuts = result.get("shortcuts") or {}
     launcher.show_info(
-        "Компоненты удалены.\n\n"
+        "Components removed.\n\n"
         f"Extension: {result['installation']['extension']['status']}\n"
         f"NXM: {result['installation']['nxm_handler']['status']}\n"
-        f"Удалено файлов ярлыков: {len(shortcuts.get('removed', []))}\n\n"
-        "Vortex и prefix не изменялись.\n\n"
-        "OVLS Manager сейчас закроется: его установленная копия удалена.\n"
-        "Для повторной установки запустите из каталога пакета:\n"
+        f"Shortcut files removed: {len(shortcuts.get('removed', []))}\n\n"
+        "Vortex and prefix were not changed.\n\n"
+        "OVLS Manager will now close: its installed copy has been removed.\n"
+        "To reinstall, run from the package directory:\n"
         "bash install.sh install"
     )
     return True
@@ -425,7 +454,7 @@ def action_change_prefix():
         info = installer.detect(str(previous_prefix))
         if info["running_vortex"]:
             launcher.show_message(
-                "Vortex запущен. Закройте его перед сменой prefix."
+                "Vortex is running. Close it before changing prefix."
             )
             return
     chosen = launcher.choose_directory(start=previous_prefix)
@@ -433,10 +462,14 @@ def action_change_prefix():
         return
     chosen = Path(chosen).expanduser().resolve()
     if not package.is_prefix(chosen):
-        launcher.show_message(f"Это не prefix Proton (нет pfx/drive_c/users):\n{chosen}")
+        launcher.show_message(
+            "This is not a valid Vortex prefix. It must contain "
+            "pfx/drive_c/users/ and pfx/drive_c/Program Files/Vortex/Vortex.exe:\n"
+            f"{chosen}"
+        )
         return
     if not launcher.vortex_exe(chosen).is_file():
-        launcher.show_message(f"Vortex.exe не найден в prefix:\n{launcher.vortex_exe(chosen)}")
+        launcher.show_message(f"Vortex.exe not found in prefix:\n{launcher.vortex_exe(chosen)}")
         return
     try:
         package.save_prefix(chosen)
@@ -446,15 +479,15 @@ def action_change_prefix():
             ovls_py=str(package.installed_entry_point()),
         )
         if handler.get("status") == "attention_required":
-            raise ValueError("NXM handler не зарегистрирован (проверьте xdg-mime)")
+            raise ValueError("NXM handler is not registered (check xdg-mime)")
     except (OSError, ValueError) as exc:
         _restore_prefix(previous_config, previous_prefix)
-        launcher.show_message(f"Prefix не изменён:\n{exc}")
+        launcher.show_message(f"Prefix was not changed:\n{exc}")
         return
     launcher.show_info(
-        "Prefix сохранён:\n"
+        "Prefix saved:\n"
         f"{chosen}\n\n"
-        "Нажмите Install / Update, чтобы установить компоненты в новый prefix."
+        "Click Install / Update to install components in the new prefix."
     )
 
 

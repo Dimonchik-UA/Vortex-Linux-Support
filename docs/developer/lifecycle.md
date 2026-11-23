@@ -30,7 +30,7 @@ The installer copies OVLS code to `~/.local/share/ovls/` (autonomous copy), inst
 When launched, OVLS:
 
 1. Detects the Proton prefix (explicit argument, remembered prefix, or auto-detection)
-2. Launches the official Windows `Vortex.exe` through Proton (prefers Proton-GE with "latest", falls back to Proton 11.0, then any Proton; Proton-GE and DW-Proton Latest showed no window issues in testing; Proton 11.0, Hotfix, Experimental did)
+2. Launches the official Windows `Vortex.exe` through the Proton tool selected in Steam for the prefix (otherwise prefers DW-Proton / Proton-GE, then any Proton; no version is required. Proton-GE and DW-Proton Latest showed no window issues in testing; Proton 11.0, Hotfix, Experimental did)
 3. The Extension loads inside Vortex and connects back to OVLS via JSON IPC
 4. External component and Extension communicate via file-based JSON IPC
 
@@ -39,7 +39,7 @@ When launched, OVLS:
 To update OVLS:
 
 1. Obtain a new `OVLS Installer` folder
-2. Run `bash install.sh` and choose **Update**
+2. Run `bash install.sh` and choose **Install / Update**
 3. The update installs code from the new package into the existing installation
 
 Update is transactional: new files are staged first, previous files are backed up, and the previous state is restored on failure.
@@ -58,7 +58,7 @@ After uninstall, OVLS Manager closes (its installed copy is removed). Reinstall 
 
 The IPC session lifecycle involves several distinct scenarios:
 
-1. **First Extension load**: Extension loads inside Vortex and generates `sessionId` (UUID v4). Extension creates IPC directories: `requests/`, `processing/`, `responses/`, `acks/`, `processed/`, `quarantine/`.
+1. **First Extension load**: Extension loads inside Vortex and generates `sessionId` (UUID v4). Extension creates the IPC root plus `sessions/<sessionId>/` with `requests/`, `processing/`, `responses/`, and global `acks/`, `dedup/`, `processed/`, `quarantine/`, `client_state/`.
 2. **Renderer re-initialization**: If the renderer process restarts (e.g., via `loadURL()`), the Extension re-initializes. Whether `sessionId` is preserved or regenerated across renderer restart is **not confirmed** (OQ-5 open question).
 3. **New Vortex launch**: A new Vortex launch starts a new Extension instance. Whether `sessionId` persists across separate Vortex launches is **not confirmed**.
 

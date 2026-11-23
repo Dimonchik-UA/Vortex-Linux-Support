@@ -80,6 +80,7 @@ class ManagerTest(unittest.TestCase):
             manager.package, "detect_prefix", return_value=self.prefix
         )
         self.detect_prefix = detect_prefix.start()
+        self.detect_prefix_patch = detect_prefix
         self.addCleanup(detect_prefix.stop)
 
         # The startup GitHub check is exercised in ManagerGitHubUpdateTest, not
@@ -108,6 +109,76 @@ class ManagerTest(unittest.TestCase):
         self.show_info.assert_called_once()
         self.show_message.assert_not_called()
 
+    def test_install_handler_auto_detects_a_single_vortex_prefix(self):
+        # No prefix passed to the button handler: Manager must scan Steam.
+        self.detect_prefix_patch.stop()
+        compatdata = self.home / ".local" / "share" / "Steam" / "steamapps" / "compatdata"
+        found = _make_prefix(compatdata, "3089305857")
+        steam_root = mock.patch.object(
+            manager.package.steam, "find_steam_root", return_value=str(compatdata.parents[1])
+        )
+        steam_root.start()
+        self.addCleanup(steam_root.stop)
+        result = {
+            "status": "ok",
+            "prefix": str(found),
+            "copy": {"app": str(package.app_root())},
+            "installation": {"extension": {"status": "unchanged"}},
+            "nxm_handler": {"status": "unchanged"},
+            "shortcuts": {"status": "ok", "skipped": []},
+        }
+        with mock.patch.object(manager.package, "install", return_value=result) as install, \
+             mock.patch.object(manager.package, "save_prefix") as save:
+            manager.action_install()
+
+        install.assert_called_once_with(prefix=str(found), update=True)
+        self.choose_directory.assert_not_called()
+        save.assert_called_once_with(found)
+
+    def test_install_handler_lists_several_vortex_prefixes(self):
+        self.detect_prefix_patch.stop()
+        compatdata = self.home / ".local" / "share" / "Steam" / "steamapps" / "compatdata"
+        first = _make_prefix(compatdata, "111")
+        second = _make_prefix(compatdata, "222")
+        steam_root = mock.patch.object(
+            manager.package.steam, "find_steam_root", return_value=str(compatdata.parents[1])
+        )
+        steam_root.start()
+        self.addCleanup(steam_root.stop)
+        result = {
+            "status": "ok",
+            "prefix": str(second),
+            "copy": {"app": str(package.app_root())},
+            "installation": {"extension": {"status": "unchanged"}},
+            "nxm_handler": {"status": "unchanged"},
+            "shortcuts": {"status": "ok", "skipped": []},
+        }
+        with mock.patch.object(manager.setup_ui, "choose_prefix", return_value=second) as choose, \
+             mock.patch.object(manager.package, "install", return_value=result) as install, \
+             mock.patch.object(manager.package, "save_prefix"):
+            manager.action_install()
+
+        choose.assert_called_once_with([first, second])
+        install.assert_called_once_with(prefix=str(second), update=True)
+        self.choose_directory.assert_not_called()
+
+    def test_install_handler_cancel_with_several_vortex_prefixes_does_not_install(self):
+        self.detect_prefix_patch.stop()
+        compatdata = self.home / ".local" / "share" / "Steam" / "steamapps" / "compatdata"
+        _make_prefix(compatdata, "111")
+        _make_prefix(compatdata, "222")
+        steam_root = mock.patch.object(
+            manager.package.steam, "find_steam_root", return_value=str(compatdata.parents[1])
+        )
+        steam_root.start()
+        self.addCleanup(steam_root.stop)
+        with mock.patch.object(manager.setup_ui, "choose_prefix", return_value=None), \
+             mock.patch.object(manager.package, "install") as install:
+            manager.action_install()
+
+        install.assert_not_called()
+        self.choose_directory.assert_not_called()
+
     def test_install_explains_a_skipped_shortcut(self):
         skipped = {"path": "~/.local/share/applications/ovls-vortex.desktop", "reason": "not_owned_by_ovls"}
         result = {
@@ -123,7 +194,7 @@ class ManagerTest(unittest.TestCase):
 
         message = self.show_message.call_args[0][0]
         self.assertIn(skipped["path"], message)
-        self.assertIn("не принадлежит OVLS", message)
+        self.assertIn("is not owned by OVLS", message)
         self.show_info.assert_not_called()
 
     def test_install_refuses_when_not_installed(self):
@@ -132,7 +203,7 @@ class ManagerTest(unittest.TestCase):
             manager.action_install(prefix=str(self.prefix))
 
         install.assert_not_called()
-        self.assertIn("не установлен", self.show_message.call_args[0][0])
+        self.assertIn("is not installed", self.show_message.call_args[0][0])
 
     def test_uninstall_blocked_keeps_everything(self):
         result = {"status": "blocked", "message": "prefix not found; kept"}
@@ -154,9 +225,9 @@ class ManagerTest(unittest.TestCase):
             manager.action_uninstall()
 
         text = self.show_info.call_args[0][0]
-        self.assertIn("Компоненты удалены", text)
+        self.assertIn("Components removed", text)
         self.assertIn("3", text)
-        self.assertIn("закроется", text)
+        self.assertIn("will now close", text)
         self.show_message.assert_not_called()
 
     def test_run_closes_after_successful_uninstall(self):
@@ -186,7 +257,7 @@ class ManagerTest(unittest.TestCase):
             self.assertEqual(manager.run(), 0)
 
         self.assertEqual(choose.call_count, 2)
-        self.assertIn("заблокировано", self.show_message.call_args[0][0])
+        self.assertIn("Removal blocked", self.show_message.call_args[0][0])
 
     def test_change_prefix_refuses_while_vortex_runs(self):
         self.detect.return_value = {"running_vortex": [{"pid": 123}]}
@@ -194,7 +265,17 @@ class ManagerTest(unittest.TestCase):
             manager.action_change_prefix()
 
         self.choose_directory.assert_not_called()
-        self.assertIn("Vortex запущен", self.show_message.call_args[0][0])
+        self.assertIn("Vortex is running", self.show_message.call_args[0][0])
+
+    def test_change_prefix_cancel_keeps_the_saved_config(self):
+        with mock.patch.object(manager.package, "load_prefix", return_value=str(self.prefix)), \
+             mock.patch.object(manager.package, "save_prefix") as save:
+            self.choose_directory.return_value = None
+            manager.action_change_prefix()
+
+        self.choose_directory.assert_called_once_with(start=self.prefix)
+        save.assert_not_called()
+        self.show_info.assert_not_called()
 
     def test_change_prefix_rolls_back_config_and_nxm_on_error(self):
         with mock.patch.object(manager.package, "detect_prefix", return_value=self.prefix), \
@@ -213,7 +294,7 @@ class ManagerTest(unittest.TestCase):
         self.assertEqual(save.call_args_list[1], mock.call(str(self.prefix)))
         self.assertEqual(handler.call_args_list[0][0][0], str(self.other))
         self.assertEqual(handler.call_args_list[1][0][0], str(self.prefix))
-        self.assertIn("Prefix не изменён", self.show_message.call_args[0][0])
+        self.assertIn("Prefix was not changed", self.show_message.call_args[0][0])
         self.show_info.assert_not_called()
 
     def test_change_prefix_rolls_back_when_nxm_is_unregistered(self):
@@ -232,7 +313,7 @@ class ManagerTest(unittest.TestCase):
 
         self.assertEqual(save.call_args_list[0], mock.call(self.other))
         remove_config.assert_called_once()
-        self.assertIn("Prefix не изменён", self.show_message.call_args[0][0])
+        self.assertIn("Prefix was not changed", self.show_message.call_args[0][0])
 
     def test_change_prefix_rolls_back_when_config_save_fails(self):
         with mock.patch.object(manager.package, "detect_prefix", return_value=self.prefix), \
@@ -251,7 +332,7 @@ class ManagerTest(unittest.TestCase):
         self.assertEqual(save.call_args_list[1], mock.call(str(self.prefix)))
         handler.assert_called_once()
         self.assertEqual(handler.call_args[0][0], str(self.prefix))
-        self.assertIn("Prefix не изменён", self.show_message.call_args[0][0])
+        self.assertIn("Prefix was not changed", self.show_message.call_args[0][0])
 
     def test_change_prefix_saves_when_handler_is_registered(self):
         with mock.patch.object(manager.package, "detect_prefix", return_value=self.prefix), \
@@ -267,6 +348,61 @@ class ManagerTest(unittest.TestCase):
         save.assert_called_once_with(self.other)
         self.show_info.assert_called_once()
         self.show_message.assert_not_called()
+
+    def test_require_prefix_uses_detected_prefix_without_dialog(self):
+        with mock.patch.object(manager.package, "detect_prefix", return_value=self.prefix):
+            result = manager._require_prefix()
+
+        self.assertEqual(result, self.prefix)
+        self.choose_directory.assert_not_called()
+
+    def test_require_prefix_uses_saved_prefix_without_dialog(self):
+        with mock.patch.object(manager.package, "detect_prefix", return_value=self.prefix), \
+             mock.patch.object(manager.package, "load_prefix", return_value=str(self.prefix)):
+            result = manager._require_prefix()
+
+        self.assertEqual(result, self.prefix)
+        self.choose_directory.assert_not_called()
+
+    def test_require_prefix_opens_the_directory_chooser_when_nothing_is_detected(self):
+        self.choose_directory.return_value = self.other
+        with mock.patch.object(manager.package, "detect_prefix", return_value=None), \
+             mock.patch.object(manager.package, "save_prefix") as save:
+            result = manager._require_prefix()
+
+        self.assertEqual(result, self.other)
+        self.choose_directory.assert_called_once_with()
+        save.assert_called_once_with(self.other)
+
+    def test_require_prefix_cancel_keeps_config_unchanged(self):
+        with mock.patch.object(manager.package, "detect_prefix", return_value=None), \
+             mock.patch.object(manager.package, "save_prefix") as save:
+            result = manager._require_prefix()
+
+        self.assertIsNone(result)
+        self.choose_directory.assert_called_once_with()
+        save.assert_not_called()
+
+    def test_require_prefix_rejects_an_invalid_manual_directory(self):
+        self.choose_directory.return_value = self.root / "not-a-prefix"
+        with mock.patch.object(manager.package, "detect_prefix", return_value=None), \
+             mock.patch.object(manager.package, "save_prefix") as save:
+            result = manager._require_prefix()
+
+        self.assertIsNone(result)
+        save.assert_not_called()
+        self.assertIn("not a valid Vortex prefix", self.show_message.call_args[0][0])
+
+    def test_require_prefix_reports_save_error_for_chosen_directory(self):
+        self.choose_directory.return_value = self.other
+        with mock.patch.object(manager.package, "detect_prefix", return_value=None), \
+             mock.patch.object(
+                 manager.package, "save_prefix", side_effect=OSError("read-only")
+             ):
+            result = manager._require_prefix()
+
+        self.assertIsNone(result)
+        self.assertIn("Could not save the prefix setting", self.show_message.call_args[0][0])
 
 
 class ManagerGitHubUpdateTest(unittest.TestCase):
@@ -318,6 +454,7 @@ class ManagerGitHubUpdateTest(unittest.TestCase):
 
         detect_prefix = mock.patch.object(manager.package, "detect_prefix", return_value=self.prefix)
         self.detect_prefix = detect_prefix.start()
+        self.detect_prefix_patch = detect_prefix
         self.addCleanup(detect_prefix.stop)
 
         self.normal_result = {
@@ -361,6 +498,34 @@ class ManagerGitHubUpdateTest(unittest.TestCase):
         prepared.tag_name = "v0.2.0"
         prepared.cleanup = mock.Mock()
         return prepared
+
+    def _assert_available_update_version_resolution(self, current, installed, read_calls):
+        cached = self._cache_update_available(current=current)
+        self.confirm.return_value = False
+        with mock.patch.object(updater, "read_installed_version", return_value=installed) as read_version, \
+             mock.patch.object(manager.package, "install", return_value=self.normal_result) as install, \
+             mock.patch.object(manager.updater, "prepare_release_package") as prepare, \
+             mock.patch.object(manager.updater, "check_for_updates") as force_check:
+            manager.action_install(prefix=str(self.prefix))
+
+        self.assertEqual(read_version.call_count, read_calls)
+        prompt = self.confirm.call_args[0][0]
+        self.assertIn(f"Installed version: {current or installed or 'unknown'}", prompt)
+        self.assertIn(cached.latest_version, prompt)
+        prepare.assert_not_called()
+        force_check.assert_not_called()
+        install.assert_called_once_with(prefix=str(self.prefix), update=True)
+        self.show_info.assert_called_once()
+        self.show_message.assert_not_called()
+
+    def test_available_update_with_no_current_version_reads_updater_version(self):
+        self._assert_available_update_version_resolution(None, "0.1.4", 1)
+
+    def test_available_update_with_empty_current_version_reads_updater_version(self):
+        self._assert_available_update_version_resolution("", "0.1.5", 1)
+
+    def test_available_update_with_known_current_version_skips_updater_lookup(self):
+        self._assert_available_update_version_resolution("0.1.0", "0.9.9", 0)
 
     def test_run_starts_background_check_without_blocking_menu(self):
         started = threading.Event()
@@ -500,7 +665,7 @@ class ManagerGitHubUpdateTest(unittest.TestCase):
             manager.action_install(prefix=str(self.prefix))
 
         install.assert_not_called()
-        self.assertIn("формат", self.show_message.call_args[0][0])
+        self.assertIn("invalid format", self.show_message.call_args[0][0])
 
     def test_cleanup_called_even_if_install_fails(self):
         self._cache_update_available()
@@ -513,7 +678,7 @@ class ManagerGitHubUpdateTest(unittest.TestCase):
 
         install.assert_called_once()
         prepared.cleanup.assert_called_once()
-        self.assertIn("не выполнена", self.show_message.call_args[0][0])
+        self.assertIn("Update installation failed", self.show_message.call_args[0][0])
         self.show_info.assert_not_called()
 
     def test_github_check_failure_after_confirm_does_not_install(self):

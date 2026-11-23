@@ -3,8 +3,8 @@
 Owns exactly three things:
 
   * ``$XDG_CONFIG_HOME/ovls/config.json`` — the remembered Proton prefix;
-  * the prefix search order (configured path, ``~/Windows/prefix``,
-    ``~/Windows/prefix``, Steam ``compatdata/1712840``);
+  * the prefix search order, shared with the main OVLS component
+    (configured path, ``~/Windows/prefix``, generic Steam ``compatdata/*``);
   * a detached launch with a log at ``$XDG_STATE_HOME/ovls/launch.log``.
 
 Dialog windows use ``kdialog`` and fall back to ``zenity``; neither is a new
@@ -21,12 +21,12 @@ import tempfile
 from pathlib import Path
 
 import desktop
+import package
 import proton
 import steam
 
 CONFIG_FILE = "config.json"
 VORTEX_EXE_REL = Path("pfx") / "drive_c" / "Program Files" / "Vortex" / "Vortex.exe"
-STEAM_COMPATDATA_APPID = "1712840"
 TITLE = "Vortex"
 
 
@@ -60,30 +60,16 @@ def save_config(data):
 
 
 def is_prefix(path):
-    return (Path(path).expanduser() / "pfx" / "drive_c" / "users").is_dir()
+    return steam.is_vortex_prefix(path)
 
 
 def vortex_exe(prefix):
     return Path(prefix).expanduser() / VORTEX_EXE_REL
 
 
-def known_prefixes():
-    yield Path.home() / "Windows" / "prefix"
-    steam_root = steam.find_steam_root()
-    if steam_root:
-        yield Path(steam_root) / "steamapps" / "compatdata" / STEAM_COMPATDATA_APPID
-
-
 def find_prefix(config=None):
-    configured = (config or {}).get("prefix")
-    if configured:
-        path = Path(configured).expanduser()
-        if is_prefix(path):
-            return path
-    for candidate in known_prefixes():
-        if is_prefix(candidate):
-            return candidate
-    return None
+    """Use the main OVLS detection; return None when the choice is ambiguous."""
+    return package.detect_prefix(explicit=(config or {}).get("prefix"))
 
 
 def _gui_disabled():
@@ -137,7 +123,7 @@ def show_text_file(path):
     """Show a text file in the dialog tool's read-only viewer."""
     source = Path(path)
     if not source.is_file():
-        show_message(f"Файл не найден:\n{source}")
+        show_message(f"File not found:\n{source}")
         return
     tool = _dialog_tool()
     if tool is None:
@@ -170,7 +156,10 @@ def confirm(message):
     return bool(result is not None and result.returncode == 0)
 
 
-def choose_directory(start=None, prompt="Выберите каталог prefix Vortex (папка с pfx/)"):
+def choose_directory(
+    start=None,
+    prompt="Select the Vortex prefix directory (with pfx/drive_c/users/ and Vortex.exe)",
+):
     tool = _dialog_tool()
     if tool is None:
         return None
@@ -188,22 +177,21 @@ def choose_directory(start=None, prompt="Выберите каталог prefix 
     return Path(value) if value else None
 
 
-def _select_proton():
+def _select_proton(prefix=None):
+    selected = proton.selected_proton(prefix)
+    if selected:
+        return selected
     try:
         path = proton.default_proton()
     except ValueError as exc:
         show_message(f"OVLS: {exc}")
         return None
-    directory = os.path.dirname(path)
-    if not proton.is_ge_proton(directory):
-        proceed = confirm(
-            "Proton-GE не найден.\n\n"
-            "Без него Vortex работает под Proton 11.0, где возможна белая полоса "
-            "сверху и смещение кликов.\n\n"
-            f"Запустить с {os.path.basename(directory)}?"
+    # Recommendation only: never refuse to launch a user-selected Proton.
+    if not proton.is_recommended_proton(os.path.dirname(path)):
+        show_info(
+            "For best compatibility, DW-Proton or Proton-GE is recommended. "
+            "You can continue with your current Proton version."
         )
-        if not proceed:
-            return None
     return path
 
 
@@ -215,20 +203,20 @@ def run(argv=None):
         prefix = choose_directory()
     if prefix is None:
         show_message(
-            "Vortex не найден.\n\n"
-            "Не удалось определить prefix Vortex. Ожидается каталог вида "
-            "~/Windows/prefix (внутри pfx/)."
+            "Vortex not found.\n\n"
+            "Could not determine a single Vortex prefix. Specify a directory with "
+            "pfx/drive_c/users/ and pfx/drive_c/Program Files/Vortex/Vortex.exe."
         )
         return 2
 
     prefix = Path(prefix).expanduser().resolve()
     if not is_prefix(prefix):
-        show_message(f"Это не prefix Proton (нет pfx/drive_c/users):\n{prefix}")
+        show_message(f"This is not a Vortex prefix (pfx/drive_c/users/ and Vortex.exe are required):\n{prefix}")
         return 2
 
     vortex = vortex_exe(prefix)
     if not vortex.is_file():
-        show_message(f"Vortex.exe не найден в prefix:\n{vortex}")
+        show_message(f"Vortex.exe not found in prefix:\n{vortex}")
         return 2
 
     if str(prefix) != config.get("prefix"):
@@ -238,7 +226,7 @@ def run(argv=None):
         except OSError as exc:
             print(f"OVLS: cannot save config: {exc}", file=sys.stderr)
 
-    proton_path = _select_proton()
+    proton_path = _select_proton(prefix)
     if not proton_path:
         return 1
 
@@ -257,7 +245,7 @@ def run(argv=None):
             vortex_args=extra_vortex_args,
         )
     except (OSError, ValueError) as exc:
-        show_message(f"Не удалось запустить Vortex:\n{exc}")
+        show_message(f"Could not start Vortex:\n{exc}")
         return 2
 
     print(

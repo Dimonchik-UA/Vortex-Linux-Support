@@ -306,7 +306,7 @@ def install(
 ):
     info = detect(prefix_path)
     if not info["is_proton_prefix"]:
-        raise ValueError(f"Not a Proton prefix with pfx/drive_c/users: {prefix_path}")
+        raise ValueError(f"Not a valid Vortex prefix (missing pfx/drive_c/users): {prefix_path}")
     if not info["vortex_installed"]:
         raise ValueError(f"Vortex.exe not found in prefix: {info['prefix']}")
     if info["running_vortex"] and not force:
@@ -369,7 +369,7 @@ def install(
 def verify(prefix_path, source, with_desktop=False, applications_dir=None):
     info = detect(prefix_path)
     if not info["is_proton_prefix"]:
-        raise ValueError(f"Not a Proton prefix with pfx/drive_c/users: {prefix_path}")
+        raise ValueError(f"Not a valid Vortex prefix (missing pfx/drive_c/users): {prefix_path}")
     state = installed_state(prefix_path, source)
     steam_state = _steam_library_state(prefix_path)
     registry_state = registry.read_state(prefix_path)
@@ -401,7 +401,7 @@ def verify(prefix_path, source, with_desktop=False, applications_dir=None):
 def uninstall(prefix_path, with_desktop=False, applications_dir=None):
     info = detect(prefix_path)
     if not info["is_proton_prefix"]:
-        raise ValueError(f"Not a Proton prefix with pfx/drive_c/users: {prefix_path}")
+        raise ValueError(f"Not a valid Vortex prefix (missing pfx/drive_c/users): {prefix_path}")
     if info["running_vortex"]:
         raise ValueError("Vortex is running for this prefix; close it before uninstalling")
     removed = extension_installer.remove_extension(prefix_path)

@@ -119,20 +119,53 @@ def is_ge_proton(proton_dir):
     return name.startswith("ge-proton") or "proton-ge" in name
 
 
-def default_proton():
-    """Return the Proton executable OVLS uses when the user does not choose one.
+def is_recommended_proton(proton_dir):
+    """DW-Proton and Proton-GE are recommendations, never requirements."""
+    name = os.path.basename(proton_dir).lower()
+    return is_ge_proton(name) or "dw-proton" in name
 
-    Proton-GE is preferred because Proton 11.0 reproduces the window defect
-    (outer KDE frame, white band, click offset) — see IS-053.
+
+def selected_proton(prefix=None):
+    """Resolve the Proton tool Steam selected for ``prefix`` to an executable.
+
+    Returns ``None`` when Steam has no mapping or the selected tool is not
+    installed. Never changes the selection.
     """
+    if not prefix:
+        return None
+    import steam
+    name = steam.selected_proton_name(prefix)
+    if not name:
+        return None
+    wanted = name.lower()
+    for path in find_proton_versions():
+        if os.path.basename(path).lower() == wanted:
+            return os.path.join(path, "proton")
+    root = steam.find_steam_root()
+    if not root:
+        return None
+    for directory in ("compatibilitytools.d", os.path.join("steamapps", "common")):
+        candidate = os.path.join(root, directory, name, "proton")
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+def default_proton(prefix=None):
+    """Return the Proton executable OVLS uses when the user did not pass one.
+
+    The tool selected in Steam for this prefix wins. Otherwise a recommended
+    tool (DW-Proton / Proton-GE) is preferred; no specific version is forced.
+    """
+    if prefix:
+        chosen = selected_proton(prefix)
+        if chosen:
+            return chosen
     versions = find_proton_versions()
-    ge = [path for path in versions if is_ge_proton(path)]
-    if ge:
-        latest = [path for path in ge if "latest" in os.path.basename(path).lower()]
-        return os.path.join((latest or sorted(ge))[-1], "proton")
-    preferred = [path for path in versions if "11.0" in os.path.basename(path)]
-    if preferred:
-        return os.path.join(preferred[0], "proton")
+    recommended = [path for path in versions if is_recommended_proton(path)]
+    if recommended:
+        latest = [path for path in recommended if "latest" in os.path.basename(path).lower()]
+        return os.path.join((latest or sorted(recommended))[-1], "proton")
     if versions:
         return os.path.join(sorted(versions)[0], "proton")
     raise ValueError("Proton not found; pass --proton explicitly")

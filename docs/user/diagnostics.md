@@ -38,7 +38,7 @@ OVLS writes logs to the following locations:
 |-----|----------|------------------|
 | Vortex log | `<prefix>/pfx/drive_c/users/<user>/AppData/Roaming/Vortex/vortex.log` | Vortex application log; OVLS extension lines start with `OVLS9` |
 | OVLS launch log | `$XDG_STATE_HOME/ovls/launch.log` (typically `~/.local/state/ovls/launch.log`) | Launch attempts and Proton startup |
-| OVLS package log | `~/.local/share/ovls/ovls.log` | OVLS package manager operations |
+| OVLS package log | `~/.local/share/ovls/ovls/ovls.log` | OVLS package manager operations |
 
 ## Common problems and solutions
 
@@ -51,7 +51,7 @@ Observed on Proton 11.0, Proton Hotfix, and Proton Experimental in SteamOS Deskt
 - Vortex interface visually shifted downward.
 - Cursor position does not match click coordinates (click registers below visible cursor).
 
-**Solution:** Launch Vortex through Proton-GE (preferring "latest") or DW-Proton Latest (OVLS selects Proton-GE by default). The issue does not occur with these Proton variants in testing. The cause is not determined.
+**Solution:** Select DW-Proton or Proton-GE in Steam for the Vortex shortcut, or pass `--proton /path/to/proton` to OVLS. OVLS honours your selection; these variants did not show the issue in testing. The cause is not determined.
 
 ### "Mods can't be deployed."
 
@@ -59,7 +59,7 @@ This means your staging folder is on a different Wine disk than your game. **Sol
 
 ### Vortex.exe not found in prefix
 
-OVLS could not find `Vortex.exe` at `pfx/drive_c/Program Files/Vortex/Vortex.exe` in your selected prefix. **Solution:** Verify that Vortex is installed in the prefix you selected, or choose a different prefix with **Change prefix**.
+OVLS could not find `Vortex.exe` at `pfx/drive_c/Program Files/Vortex/Vortex.exe` in your selected prefix. OVLS accepts a prefix from the config, a known location, or the Steam `compatdata/*` scan only when both `pfx/drive_c/users/` and `Vortex.exe` are present. If nothing is found, Install offers a directory chooser; **Change prefix** always opens it. **Solution:** Install the official Vortex by adding `vortex-setup-*.exe` as a non-Steam game and running it once with a Proton compatibility tool (DW-Proton or GE-Proton are recommended, but not required), or pass `--prefix /path/to/compatdata` explicitly. If another valid prefix is already installed, open **Change prefix** and select its directory manually; found prefixes are not offered as a list there.
 
 ### NXM links do not open in Vortex
 
@@ -77,7 +77,7 @@ bash install.sh uninstall --prefix /path/to/your/prefix
 
 ### No Proton found
 
-OVLS could not find any Proton installation. **Solution:** Install Proton-GE (preferring "latest") or Proton 11.0 through Steam, then re-run the installer.
+OVLS could not find any Proton installation. **Solution:** Install a Proton compatibility tool through Steam (DW-Proton or Proton-GE is recommended), select it for the Vortex shortcut, then re-run the installer.
 
 ## Input limitations on Steam Deck
 

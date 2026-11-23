@@ -15,6 +15,72 @@ def find_steam_root():
     return None
 
 
+VORTEX_EXE_REL = Path("pfx") / "drive_c" / "Program Files" / "Vortex" / "Vortex.exe"
+VORTEX_USERS_REL = Path("pfx") / "drive_c" / "users"
+
+
+def is_vortex_prefix(path):
+    """A Proton prefix that actually contains the official Vortex."""
+    path = Path(path).expanduser()
+    return (path / VORTEX_USERS_REL).is_dir() and (path / VORTEX_EXE_REL).is_file()
+
+
+def find_vortex_prefixes(steam_root=None):
+    """Vortex prefixes under <steam_root>/steamapps/compatdata/* (read-only)."""
+    root = steam_root or find_steam_root()
+    if not root:
+        return []
+    compatdata = Path(root).expanduser() / "steamapps" / "compatdata"
+    if not compatdata.is_dir():
+        return []
+    found = []
+    try:
+        entries = list(compatdata.iterdir())
+    except OSError:
+        return []
+    for entry in entries:
+        if entry.is_dir() and is_vortex_prefix(entry):
+            found.append(entry.resolve())
+    return sorted(found)
+
+
+def selected_proton_name(prefix=None, steam_root=None):
+    """Return the Proton tool name Steam selected for this prefix's appid.
+
+    Reads ``config/config.vdf`` (CompatToolMapping) read-only. Returns ``None``
+    when the prefix has no appid or no mapping exists.
+    """
+    if not prefix:
+        return None
+    parts = Path(prefix).expanduser().resolve().parts
+    appid = None
+    for index, part in enumerate(parts):
+        if part == "compatdata" and index + 1 < len(parts):
+            appid = parts[index + 1]
+            break
+    if not appid:
+        return None
+    root = steam_root or find_steam_root()
+    if not root:
+        return None
+    try:
+        text = (Path(root) / "config" / "config.vdf").read_text(
+            encoding="utf-8", errors="replace"
+        )
+    except OSError:
+        return None
+    marker = text.find('"CompatToolMapping"')
+    if marker < 0:
+        return None
+    chunk = text[marker:marker + 20000]
+    import re
+    mapping = re.search(r'"' + re.escape(appid) + r'"\s*\{([^}]*)\}', chunk)
+    if not mapping:
+        return None
+    name = re.search(r'"name"\s+"([^"]+)"', mapping.group(1))
+    return name.group(1) if name else None
+
+
 def read_library_folders(steam_root):
     vdf_path = os.path.join(steam_root, "steamapps", "libraryfolders.vdf")
     libraries = [steam_root]
@@ -46,11 +112,3 @@ def discover_games(steam_root):
             appid = name[len("appmanifest_"):-len(".acf")]
             games.append({"appid": appid, "library": library})
     return games
-
-
-def find_vortex_install(steam_root):
-    for game in discover_games(steam_root):
-        # Vortex Steam app id is 1712840 in common setup, but keep generic.
-        if game["appid"] == "1712840":
-            return os.path.join(game["library"], "steamapps", "common", "Vortex")
-    return None

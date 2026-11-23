@@ -15,6 +15,7 @@ def collect_all(steam_root=None, prefix_path=None):
     import steam
     import proton
     import filesystem
+    import registry
 
     if steam_root is None:
         steam_root = steam.find_steam_root()
@@ -28,7 +29,8 @@ def collect_all(steam_root=None, prefix_path=None):
 
     if steam_root:
         result["games_count"] = len(steam.discover_games(steam_root))
-        result["vortex_install"] = steam.find_vortex_install(steam_root)
+        install = registry.find_vortex_install(prefix_path) if prefix_path else None
+        result["vortex_install"] = install["install_dir"] if install else None
         result["case_sensitivity"] = filesystem.check_case_sensitivity(steam_root)
         result["hardlink"] = filesystem.check_hardlink(steam_root)
 

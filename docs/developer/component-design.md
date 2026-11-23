@@ -29,7 +29,7 @@ Installs and removes the Vortex Extension (`info.json`, `index.js`) into the Pro
 Filesystem checks: case sensitivity, hardlink support, accessibility, free space.
 
 ### `installer.py`
-Package installation, update, verification, and removal. Transactional: stages new files, backs up existing ones, restores on failure.
+Installs and verifies the OVLS components inside the Proton prefix: the Vortex Extension, the Vortex uninstall registry key, and `libraryfolders.vdf`. Does not stage or roll back the package copy.
 
 ### `ipc.py`
 Legacy minimal IPC client for communication between external component and Vortex Extension. Uses flat layout with single request/response files. **Not used in production** — the production client is `external/client.py` with per-request files and session-scoped layout. Retained for backward compatibility and diagnostics only.
@@ -44,13 +44,13 @@ Path resolution: determines source tree and extension tree locations for both pr
 Graphical manager (kdialog/zenity): Install/Update, Verify, Uninstall, Change prefix actions.
 
 ### `ovls.py`
-Command-line entry point: subcommands for status, discover, inspect-prefix, launch, nxm, launcher, manager, shortcuts, install-extension, remove-extension, install, verify, uninstall, package, check-fs, diagnostics, ipc.
+Command-line entry point: subcommands for status, discover, inspect-prefix, launch, nxm, launcher, manager, shortcuts, install-extension, remove-extension, install, verify, uninstall, package, check-fs, diagnostics, ipc, plus compatibility aliases `ping`, `get-state`, and `ipc-status` for `ipc ping`, `ipc get-state`, and `ipc status`.
 
 ### `package.py`
-Autonomous package management: copies source tree to installed copy, manages MANIFEST.sha256, handles transactional install/update/verify/uninstall.
+Autonomous package management: stages and verifies the new source tree, backs up managed files and restores them on failure, manages MANIFEST.sha256, handles transactional install/update/verify/uninstall, and calls `installer.py` for components inside the prefix.
 
 ### `proton.py`
-Proton discovery and launch: finds Proton installations, selects Proton-GE (preferring "latest"), falls back to Proton 11.0, then to any available Proton; launches Vortex through Proton.
+Proton discovery and launch: finds Proton installations, honours the tool selected in Steam for the prefix (read from `config.vdf` `CompatToolMapping`), otherwise prefers a recommended tool (DW-Proton / Proton-GE), then any available Proton; launches Vortex through Proton. No specific version is required.
 
 ### `registry.py`
 Windows registry operations for Proton prefix: creates/repairs uninstall keys.
@@ -66,7 +66,7 @@ Desktop shortcut creation and management: creates three shortcuts with ownership
 - `ovls-nxm.desktop` — hidden protocol-handler entry (`NoDisplay=true`), not shown as a regular application, Name: `OVLS NXM Handler`, Categories: `Game;`, wraps `ovls.py nxm --prefix ... --uri "$1"` for NXM link handling.
 
 ### `steam.py`
-Steam discovery: finds Steam root, library folders, installed games, Vortex installation.
+Steam discovery: finds Steam root, library folders, installed games and Vortex prefixes under `steamapps/compatdata/*`.
 
 ## Extension Components
 

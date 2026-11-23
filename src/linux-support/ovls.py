@@ -96,7 +96,7 @@ def cmd_launch(args):
         if args.vortex_args:
             extra_args.extend(args.vortex_args)
         return proton.launch_vortex(
-            args.proton or _default_proton(),
+            args.proton or _default_proton(args.prefix),
             args.vortex,
             args.prefix,
             steam_client_path=args.steam_client,
@@ -107,8 +107,8 @@ def cmd_launch(args):
         return 2
 
 
-def _default_proton():
-    return proton.default_proton()
+def _default_proton(prefix=None):
+    return proton.default_proton(prefix)
 
 
 def cmd_nxm(args):
@@ -121,7 +121,7 @@ def cmd_nxm(args):
         prefix / "pfx" / "drive_c" / "Program Files" / "Vortex" / "Vortex.exe"
     )
     try:
-        proton_path = args.proton or _default_proton()
+        proton_path = args.proton or _default_proton(prefix)
         # Default Electron args for better Wine performance; can be overridden via OVLS_VORTEX_ARGS
         if os.environ.get("OVLS_VORTEX_ARGS"):
             extra_args = ["-d", uri] + os.environ["OVLS_VORTEX_ARGS"].split()
@@ -282,6 +282,8 @@ def cmd_package(args):
     except (OSError, ValueError) as exc:
         print(f"Package {args.package_command} failed: {exc}", file=sys.stderr)
         return 2
+    if not args.prefix and result.get("reason") == "prefix_not_found":
+        print(result.get("message", ""), file=sys.stderr)
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0 if result.get("status") in ("ok", "unchanged") else 1
 
@@ -382,7 +384,7 @@ def main():
     p.add_argument(
         "--proton",
         default=None,
-        help="Path to the Proton executable (defaults to Proton-GE Latest when installed)",
+        help="Path to the Proton executable (defaults to the Proton selected in Steam when available)",
     )
     p.add_argument("--vortex", required=True, help="Path to Vortex.exe inside the prefix")
     p.add_argument("--prefix", required=True, help="Proton compatdata directory containing pfx/")
@@ -420,7 +422,7 @@ def main():
     p = sub.add_parser("nxm", help="Open an nxm:// URL in the official Vortex (NXM handler)")
     p.add_argument("--prefix", required=True, help="Proton compatdata directory containing pfx/")
     p.add_argument("--uri", required=True, help="nxm:// URL received from the desktop handler")
-    p.add_argument("--proton", default=None, help="Proton executable (defaults to Proton-GE Latest when installed)")
+    p.add_argument("--proton", default=None, help="Proton executable (defaults to the Proton selected in Steam when available)")
     p.add_argument("--vortex", default=None, help="Vortex.exe path (defaults to the prefix install)")
     p.add_argument(
         "--steam-client",

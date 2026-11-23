@@ -6,9 +6,8 @@
 # It delegates to the package installer in `installer/install.sh`.
 #
 # Usage:
-#   bash scripts/install_linux_support.sh                     # default prefix
-#   bash scripts/install_linux_support.sh /path/to/compatdata # explicit prefix
-#   DRY_RUN=1 bash scripts/install_linux_support.sh           # report only
+#   bash scripts/install_linux_support.sh /path/to/compatdata # explicit prefix (required)
+#   DRY_RUN=1 bash scripts/install_linux_support.sh /path/to/compatdata # report only
 #
 # The prefix argument is the directory that contains `pfx/`, e.g.
 #   /path/to/compatdata   ->   /path/to/compatdata/pfx/drive_c/...
@@ -40,7 +39,7 @@ if [ -z "$PREFIX" ]; then
     exit 1
 fi
 if [ ! -d "$PREFIX/pfx/drive_c/users" ]; then
-    echo "ERROR: '$PREFIX' is not a Proton prefix (missing pfx/drive_c/users)." >&2
+    echo "ERROR: '$PREFIX' is not a valid Vortex prefix (missing pfx/drive_c/users/)." >&2
     exit 1
 fi
 

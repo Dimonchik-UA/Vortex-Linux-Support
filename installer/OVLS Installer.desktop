@@ -2,7 +2,7 @@
 Type=Application
 Version=1.0
 Name=OVLS Installer
-Comment=Установка, проверка и удаление Linux Support для официального Vortex
+Comment=Install, verify and remove Linux Support for the official Vortex
 Exec=sh -c "exec bash \\"\\$(dirname \\"\\$1\\")/install.sh\\"" sh %k
 Icon=system-software-install
 Terminal=false

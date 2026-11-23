@@ -32,13 +32,39 @@ TITLE = "OVLS Installer"
 ACTIONS = [
     ("install", "Install / Update"),
     ("verify", "Verify"),
-    ("help", "Справка"),
+    ("help", "Help"),
     ("uninstall", "Uninstall"),
 ]
 
 
 def _zenity(tool):
     return os.path.basename(tool).startswith("zenity")
+
+
+def choose_prefix(candidates):
+    """Ask the user to pick one of several discovered Vortex prefixes."""
+    tool = launcher._dialog_tool()
+    if tool is None:
+        return None
+    question = "Several Vortex prefixes were found. Choose one:"
+    if _zenity(tool):
+        arguments = [
+            "--list",
+            f"--title={TITLE}",
+            "--column=Prefix",
+            f"--text={question}",
+            "--print-column=1",
+        ]
+        arguments.extend(str(path) for path in candidates)
+    else:
+        arguments = ["--menu", question]
+        for path in candidates:
+            arguments.extend([str(path), str(path)])
+    result = launcher._run_dialog(tool, arguments)
+    if result is None or result.returncode != 0:
+        return None
+    chosen = result.stdout.strip()
+    return Path(chosen).expanduser().resolve() if chosen else None
 
 
 def choose_action():
@@ -82,17 +108,42 @@ def action_help():
 def _require_prefix():
     prefix = package.detect_prefix()
     if prefix:
+        try:
+            package.save_prefix(prefix)
+        except OSError as exc:
+            launcher.show_message(f"Could not save the prefix setting:\n{exc}")
+            return None
         return prefix
+    candidates = package.detect_prefix_candidates()
+    if len(candidates) > 1:
+        prefix = choose_prefix(candidates)
+        if not prefix:
+            return None
+        try:
+            package.save_prefix(prefix)
+        except OSError as exc:
+            launcher.show_message(f"Could not save the prefix setting:\n{exc}")
+            return None
+        return prefix
+    launcher.show_message(
+        "Vortex not found. Add vortex-setup-*.exe as a non-Steam game in Steam, "
+        "select a Proton compatibility tool (DW-Proton or GE-Proton are recommended) "
+        "and run it once, or pass --prefix /path/to/compatdata."
+    )
     chosen = launcher.choose_directory()
     if not chosen:
         return None
     if not package.is_prefix(chosen):
-        launcher.show_message(f"Это не prefix Proton (нет pfx/drive_c/users):\n{chosen}")
+        launcher.show_message(
+            "This is not a valid Vortex prefix. It must contain "
+            "pfx/drive_c/users/ and pfx/drive_c/Program Files/Vortex/Vortex.exe:\n"
+            f"{chosen}"
+        )
         return None
     try:
         package.save_prefix(chosen)
     except OSError as exc:
-        launcher.show_message(f"Не удалось сохранить настройку:\n{exc}")
+        launcher.show_message(f"Could not save the prefix setting:\n{exc}")
         return None
     return Path(chosen).expanduser().resolve()
 
@@ -102,11 +153,11 @@ def _shortcut_notes(shortcut_result):
     lines = []
     skipped = shortcut_result.get("skipped") or []
     if skipped:
-        lines.append("Ярлыки не перезаписаны (файл уже существует и не принадлежит OVLS):")
+        lines.append("Shortcuts were not overwritten (the file already exists and is not owned by OVLS):")
         lines.extend(f"  {item['path']}" for item in skipped)
     if shortcut_result.get("status") != "ok" and not skipped:
-        reason = shortcut_result.get("reason") or "не удалось создать все ярлыки"
-        lines.append(f"Ярлыки: {reason}")
+        reason = shortcut_result.get("reason") or "could not create all shortcuts"
+        lines.append(f"Shortcuts: {reason}")
     return lines
 
 
@@ -115,27 +166,27 @@ def action_install():
     if not prefix:
         return
     if not launcher.vortex_exe(prefix).is_file():
-        launcher.show_message(f"Vortex.exe не найден в prefix:\n{launcher.vortex_exe(prefix)}")
+        launcher.show_message(f"Vortex.exe not found in prefix:\n{launcher.vortex_exe(prefix)}")
         return
     info = installer.detect(str(prefix))
     if info["running_vortex"]:
-        launcher.show_message("Vortex запущен. Закройте его и повторите.")
+        launcher.show_message("Vortex is running. Close it and try again.")
         return
     update = _installed()
     try:
         result = package.install(prefix=str(prefix), update=update)
     except (OSError, ValueError) as exc:
-        launcher.show_message(f"Установка не выполнена:\n{exc}")
+        launcher.show_message(f"Installation failed:\n{exc}")
         return
     shortcuts = result.get("shortcuts") or {}
     lines = [
-        "Обновление завершено." if update else "Установка завершена.",
+        "Update completed." if update else "Installation completed.",
         "",
         f"Prefix: {result.get('prefix') or prefix}",
-        f"Установленная копия: {result['copy']['status']}",
+        f"Installed copy: {result['copy']['status']}",
         f"Extension: {result['installation']['extension']['status']}",
         f"NXM: {result['nxm_handler']['status']}",
-        f"Ярлыки: {shortcuts.get('status', 'unknown')}",
+        f"Shortcuts: {shortcuts.get('status', 'unknown')}",
     ]
     notes = _shortcut_notes(shortcuts)
     if notes:
@@ -154,15 +205,15 @@ def action_verify():
     try:
         result = package.verify(prefix=str(prefix))
     except (OSError, ValueError) as exc:
-        launcher.show_message(f"Проверка не выполнена:\n{exc}")
+        launcher.show_message(f"Verification failed:\n{exc}")
         return
     ok = result["status"] == "ok"
     lines = [
-        "Проверка завершена: " + ("OK" if ok else "требует внимания"),
+        "Verification completed: " + ("OK" if ok else "needs attention"),
         "",
         f"Prefix: {result.get('prefix') or prefix}",
-        f"Копия кода: {result['copy']['status']}",
-        f"Ярлыки: {result['shortcuts']['status']}",
+        f"Code copy: {result['copy']['status']}",
+        f"Shortcuts: {result['shortcuts']['status']}",
     ]
     installed = result.get("installation")
     if installed:
@@ -174,7 +225,7 @@ def action_verify():
             ]
         )
     elif result.get("reason"):
-        lines.append(f"Причина: {result['reason']}")
+        lines.append(f"Reason: {result['reason']}")
     for key, item in result["shortcuts"]["files"].items():
         if item["status"] != "ok":
             lines.append(f"  {key}: {item['status']} — {item['path']}")
@@ -187,36 +238,36 @@ def action_verify():
 
 def action_uninstall():
     if not _installed():
-        launcher.show_message("OVLS не установлен: удалять нечего.")
+        launcher.show_message("OVLS is not installed: nothing to remove.")
         return
     prefix = _require_prefix()
     if not prefix:
         return
     if not launcher.confirm(
-        "Удалить компоненты OVLS (Extension, NXM, ярлыки)?\n\n"
-        "Vortex, моды, настройки и prefix останутся без изменений."
+        "Remove OVLS components (Extension, NXM, shortcuts)?\n\n"
+        "Vortex, mods, settings and prefix will remain unchanged."
     ):
         return
     try:
         result = package.uninstall(prefix=str(prefix))
     except (OSError, ValueError) as exc:
-        launcher.show_message(f"Удаление не выполнено:\n{exc}")
+        launcher.show_message(f"Removal failed:\n{exc}")
         return
     if result.get("status") == "blocked":
         launcher.show_message(
             result.get("message")
-            or "Удаление заблокировано. Компоненты, ярлыки и настройки сохранены."
+            or "Removal blocked. Components, shortcuts and settings were kept."
         )
         return
     shortcuts = result.get("shortcuts") or {}
     launcher.show_info(
-        "Компоненты удалены.\n\n"
+        "Components removed.\n\n"
         f"Extension: {result['installation']['extension']['status']}\n"
         f"NXM: {result['installation']['nxm_handler']['status']}\n"
-        f"Удалено файлов ярлыков: {len(shortcuts.get('removed', []))}\n\n"
-        "Vortex и prefix не изменялись.\n\n"
-        "Установленная копия OVLS удалена. Это окно можно оставить открытым, "
-        "чтобы установить компоненты заново."
+        f"Shortcut files removed: {len(shortcuts.get('removed', []))}\n\n"
+        "Vortex and prefix were not changed.\n\n"
+        "The installed OVLS copy was removed. You can leave this window open "
+        "to install the components again."
     )
 
 

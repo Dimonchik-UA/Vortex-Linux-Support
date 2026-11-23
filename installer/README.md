@@ -30,16 +30,18 @@ The OVLS Manager appears in the `Utility;` category of your application menu.
 - SteamOS 3.x, Desktop Mode (KDE Plasma)
 - Steam installed
 - Official Vortex installed in a Proton prefix
-- **Proton-GE** (any version with "ge-proton" or "proton-ge" in the name, preferring "latest") — recommended
-- **Proton 11.0** — fallback
+- **DW-Proton or Proton-GE** (including "latest" builds) — recommended, not required (GE-Proton: case-insensitive name starting with `GE-Proton` or containing `Proton-GE`)
+- **Any other installed Proton** — works; OVLS honours the tool selected in Steam
 - Python 3
 - `kdialog` or `zenity` (for graphical dialogs; CLI works without them)
 
 ## Prepare before installing
 
-1. Determine your Proton prefix — the directory that contains `pfx/`. For example: `/path/to/your/prefix`.
+1. Install the official Vortex in a Proton prefix. The usual way is to add `vortex-setup-*.exe` to Steam as a non-Steam game, select a Proton compatibility tool (DW-Proton or GE-Proton are recommended) and run it once.
 2. Make sure the prefix is writable.
 3. Close Vortex before installing. The installer will refuse to proceed if Vortex is running.
+
+Install searches for real Vortex installations: the saved prefix, the legacy location `~/Windows/prefix`, and any `<Steam root>/steamapps/compatdata/<appid>` containing `Vortex.exe`. One match is used automatically; several matches show a list to choose from; if none is found, the graphical installer opens a directory chooser and validates the folder you pick. You can always pass `--prefix /path/to/compatdata` explicitly. `Change prefix` in the Manager is separate and always opens the chooser.
 
 ## Installation
 
@@ -49,21 +51,21 @@ The OVLS Manager appears in the `Utility;` category of your application menu.
    bash install.sh
    ```
    or double-click `OVLS Installer.desktop`. If KDE marks the shortcut as untrusted, select “Trust and Launch”.
-3. When prompted, choose **Install**.
-4. If asked for a prefix, provide the path to the directory containing `pfx/` (for example `/path/to/your/prefix`).
+3. When prompted, choose **Install / Update**.
+4. If several Vortex prefixes are found, choose the correct one from the list. On the command line, pass `--prefix /path/to/compatdata` instead.
 5. Wait for the success message.
 
 ## First launch
 
 After installation, Vortex is available from the desktop and application menu. The OVLS Manager is also available from the application menu.
 
-Vortex is launched through Proton-GE by default (preferring "latest" version). If Proton-GE is not found, OVLS falls back to Proton 11.0, then to any other installed Proton version. You do not need to pass `--proton` manually.
+OVLS launches Vortex through the Proton tool selected in Steam for the prefix. If Steam has no selection, it prefers DW-Proton or Proton-GE, then any other installed Proton version. No specific version is required and you do not need to pass `--proton` manually.
 
 ## Update
 
 1. Obtain a new `OVLS Installer` folder (rebuild the package or unpack a new version).
 2. Copy it to any location.
-3. Run `install.sh` and choose **Update**.
+3. Run `install.sh` and choose **Install / Update**.
 4. The update installs code from the new package into the existing installation.
 
 Alternatively, use the OVLS Manager from the application menu (Install / Update). It may check GitHub Releases for updates:
@@ -84,7 +86,7 @@ This checks the installed copy, extension, NXM handler, and shortcuts.
 
 1. Run `install.sh` and choose **Uninstall**.
    Or use the OVLS Manager from the application menu.
-2. Uninstall removes only OVLS files: the installed copy, shortcuts, and NXM handler.
+2. Uninstall removes only OVLS-owned files: the installed copy, shortcuts, the NXM handler, and the OVLS Extension (`info.json`, `index.js`, `host.json`) from the Vortex plugin directory.
 3. The following are **not** removed:
    - Vortex and its prefix
    - Games, mods, and staging folders
@@ -95,7 +97,7 @@ This checks the installed copy, extension, NXM handler, and shortcuts.
 
 - Run `bash install.sh verify` to check the installed copy state, extension, NXM, and shortcuts.
 - Vortex log: `<prefix>/pfx/drive_c/users/<user>/AppData/Roaming/Vortex/vortex.log`. OVLS extension lines start with `OVLS9`.
-- If Vortex shows double window controls, a white band, interface shift, or cursor-click offset, run it through Proton-GE (preferring "latest") or DW-Proton Latest (OVLS selects Proton-GE by default).
+- If Vortex shows double window controls, a white band, interface shift, or cursor-click offset, select DW-Proton or Proton-GE for the Vortex shortcut in Steam (or pass `--proton`). They are recommendations, not requirements.
 
 ## Known limitations
 

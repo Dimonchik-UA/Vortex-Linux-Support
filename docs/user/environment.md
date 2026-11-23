@@ -18,7 +18,7 @@ OVLS runs on SteamOS/Linux and enables the official Windows version of Vortex to
 
 ## Proton selection
 
-OVLS prefers **Proton-GE** (any version with "ge-proton" or "proton-ge" in the name, preferring "latest") when launching Vortex. If Proton-GE is not found, OVLS falls back to **Proton 11.0**. If neither is available, OVLS uses another installed Proton version.
+OVLS uses the Proton tool selected in Steam for the Vortex prefix. If Steam has no selection, it prefers **DW-Proton** or **Proton-GE** (including "latest" builds); if neither is installed, it uses another installed Proton version. No specific version is required. GE-Proton is recognised by a case-insensitive directory name that starts with `GE-Proton` or contains `Proton-GE`.
 
 ### Tested Proton versions
 
@@ -71,7 +71,7 @@ OVLS detects Proton installations from:
 - Your Steam installation's `steamapps/common/` directory (directories containing "Proton" in the name)
 - Your Steam `compatibilitytools.d` directory (files named `proton`)
 
-You do not need to configure Proton manually. OVLS selects Proton-GE Latest by default.
+You do not need to configure Proton manually: OVLS reads the tool selected in Steam. DW-Proton and Proton-GE are recommendations, not requirements.
 
 ## Prefix requirements
 
@@ -80,12 +80,16 @@ OVLS requires a Proton prefix that contains:
 - `pfx/drive_c/users/` (a Windows users directory)
 - `pfx/drive_c/Program Files/Vortex/Vortex.exe` (the official Vortex executable)
 
-Common prefix locations OVLS checks:
+Prefix locations used automatically, in order:
 
 1. The prefix you explicitly select
 2. A previously selected prefix (saved in your OVLS config)
 3. `~/Windows/prefix`
-4. `~/.steam/root/steamapps/compatdata/1712840` (Steam's Vortex compatdata, app ID 1712840)
+4. Every `<Steam root>/steamapps/compatdata/<appid>` prefix that actually contains Vortex. The appid is assigned by Steam and differs between users.
+
+**Install / Update** uses this search: if exactly one Vortex is found, its prefix is used automatically; if several are found, you get a list to choose from; if none is found, OVLS says so and opens a directory chooser. The chosen path is validated before installation. **Change prefix** is separate: it always opens the directory chooser and never substitutes an automatically found prefix. Cancelling it leaves the saved configuration unchanged.
+
+Both `pfx/drive_c/users/` and `Vortex.exe` are required: a directory that only has `users/` is not treated as a Vortex installation. Only the main Steam root is scanned; prefixes on additional Steam library drives are not covered. DW-Proton and GE-Proton are recommended for running Vortex, but they are not required and are not used to detect the prefix.
 
 ## Python requirements
 

@@ -20,22 +20,25 @@ After downloading or building the publication package, you will have a folder na
 - **SteamOS 3.x**, Desktop Mode (KDE Plasma)
 - **Steam** installed
 - **Official Vortex** installed in a Proton prefix
-- **Proton-GE** (any version with "ge-proton" or "proton-ge" in the name, preferring "latest") — recommended
-- **Proton 11.0** — fallback
+- **DW-Proton or Proton-GE** (including "latest" builds) — recommended, not required (GE-Proton: case-insensitive name starting with `GE-Proton` or containing `Proton-GE`)
+- **Any other installed Proton** — works; OVLS uses the tool selected in Steam or the first available fallback
 - **Python 3**
 - **kdialog** or **zenity** (required for graphical dialogs; the command-line interface works without them)
 
 OVLS does not require root access.
 
-## Step 1: Determine your Proton prefix
+## Step 1: Check your Proton prefix
 
-OVLS needs to know where your Proton prefix is. The prefix is the directory that contains a `pfx/` subdirectory. Common locations include:
+The usual way to install official Vortex on SteamOS is to add `vortex-setup-*.exe` to Steam as a non-Steam game, select a Proton compatibility tool and run it once. Vortex is then installed to `C:\Program Files\Vortex` inside the prefix Steam created for that game. **DW-Proton and GE-Proton are recommended choices**; they are recommendations only, not a requirement of OVLS.
 
-- `~/Windows/prefix`
-- `/path/to/your/prefix`
-- A Steam compatdata directory under `~/.steam/root/steamapps/compatdata/`
+**Install / Update** in OVLS Installer and OVLS Manager searches for real Vortex installations: the saved prefix, `~/Windows/prefix`, and every `<Steam root>/steamapps/compatdata/<appid>` that contains both `pfx/drive_c/users/` and `pfx/drive_c/Program Files/Vortex/Vortex.exe`.
 
-You can choose any directory that contains a `pfx/` subdirectory with a Windows `drive_c` structure inside.
+- One Vortex found: its prefix is selected and used automatically, no folder search is required.
+- Several found: the graphical tools show a list of prefix paths and install only into the one you pick; cancelling aborts the installation.
+- None found: OVLS explains how to install Vortex as a non-Steam game and opens a directory chooser so you can find the prefix yourself. On the command line, pass `--prefix /path/to/compatdata`. The chosen directory is validated before installation.
+- **Change prefix** is a separate Manager action: it always opens the directory chooser, even when a valid prefix is configured, and cancelling it leaves the configuration unchanged.
+
+Prefixes on additional Steam library drives (another disk or SD card) are not scanned in this version.
 
 ## Step 2: Close Vortex
 
@@ -57,7 +60,7 @@ Open a terminal in the `OVLS Installer` folder and run:
 bash install.sh
 ```
 
-This starts the graphical installer menu (using kdialog or zenity). Choose **Install**.
+This starts the graphical installer menu (using kdialog or zenity). Choose **Install / Update**.
 
 Alternatively, you can run the command-line form:
 
@@ -106,9 +109,9 @@ To update OVLS to a new version:
 
 1. Obtain a new `OVLS Installer` folder (rebuild the package or unpack a new release).
 2. Copy it to any location.
-3. Run `bash install.sh` and choose **Update**.
+3. Run `bash install.sh` and choose **Install / Update**.
 
-The update installs code from the new package into your existing installation without touching your Vortex prefix, games, or mods.
+The update refreshes the OVLS copy and its components. Inside the Vortex prefix it only touches OVLS-owned Extension files, repairs the Vortex uninstall key when missing or broken, and adds `libraryfolders.vdf` if missing. Games, mods, and Vortex settings are not changed.
 
 Alternatively, use the OVLS Manager from the application menu (Install / Update). It may check GitHub Releases for updates:
 - If you decline the GitHub update, Manager can continue with a normal update from the already installed copy.

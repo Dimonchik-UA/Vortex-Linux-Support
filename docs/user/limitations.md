@@ -32,9 +32,9 @@ OVLS does not guarantee that it will continue to work with future versions of Vo
 
 The Vortex Extension loaded inside Vortex has limited capabilities:
 
-- It can read Vortex state (within an allowlist)
-- It can subscribe to Vortex events
-- It can write a limited set of safe parameters
+- It can read Vortex state and notifications by polling (within an allowlist), including the deployment-failure notification
+- It does not subscribe to Vortex events
+- It can dispatch only one Vortex action, `SET_MOD_INSTALL_PATH`, for the staging-folder fix
 - It cannot perform system-level operations
 
 Some advanced mod management features may not be available through the extension alone.

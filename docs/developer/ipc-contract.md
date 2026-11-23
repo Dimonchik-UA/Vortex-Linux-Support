@@ -1,6 +1,6 @@
 # IPC Contract
 
-OVLS uses file-based JSON IPC for communication between the external Linux Support component and the Vortex Extension. The protocol is defined in Stage 9 of the OVLS project roadmap.
+OVLS uses file-based JSON IPC for communication between the external Linux Support component and the Vortex Extension.
 
 ## Transport
 
@@ -43,15 +43,17 @@ Other request types are not currently supported. New commands are not added with
 | Code | Meaning |
 |------|---------|
 | `INVALID_JSON` | Request file contains invalid JSON |
+| `INVALID_REQUEST_ID` | Request ID is not a safe single path component |
+| `CHECKSUM_MISMATCH` | Request checksum verification failed |
+| `CHECKSUM_ERROR` | Checksum verification raised an error |
+| `INVALID_REQUEST` | Request is not a JSON object |
+| `UNSUPPORTED_PROTOCOL_VERSION` | Protocol version not supported |
 | `MISSING_REQUEST_ID` | Request missing request ID |
 | `MISSING_REQUEST_TYPE` | Request missing type field |
-| `UNSUPPORTED_PROTOCOL_VERSION` | Protocol version not supported |
-| `UNKNOWN_REQUEST_TYPE` | Request type not recognized |
 | `UNSAFE_STATE_PATH` | Requested state path not in allowlist |
-| `STATE_PATH_NOT_ALLOWED` | State path explicitly denied |
-| `IPC_STORAGE_LIMIT` | Storage limit exceeded |
-| `RESPONSE_MISSING` | Expected response not found |
-| `UNKNOWN_OUTCOME` | Outcome not recognized |
+| `UNKNOWN_REQUEST_TYPE` | Request type not recognized |
+| `EXTENSION_ERROR` | Error raised while handling a valid request |
+| `DUPLICATE_REQUEST` | Request ID has already completed and its result is not cached |
 
 ## Idempotency
 
@@ -77,8 +79,8 @@ Open questions:
 
 ## TOCTOU and Dedup
 
-- `writeDedup` performs read-modify-write without mutex/CAS/flock. In a single-process Extension, event loop serialization provides ordering, but this is not a general guarantee for multi-process access.
-- The TOCTOU (time-of-check-time-of-use) problem in `writeDedup` is **not resolved**. No atomic protection for dedup status transitions is implemented.
+- `writeDedup` delegates to `mergeDedup`, which creates a per-request advisory lock `dedup/.lock-<requestId>` with `O_EXCL` (`wx`) and retries on `EEXIST` before giving up.
+- A `completed` dedup record is never overwritten with `processing` (regression guard inside `mergeDedup`). The lock is a file lock, not a cross-process CAS guarantee; stale `.lock-` files are not cleaned automatically.
 - Repeated `claim` cannot change status from `completed` to `processing` because the Extension checks dedup status before claiming (see Request Flow step 2 guard in `pollOnce`).
 
 ## Directory fsync Limitations
@@ -101,6 +103,6 @@ Full durability against power loss is **not** claimed. Directory fsync unavailab
 
 ## Open Questions
 
-- IPC root discovery mechanism (hybrid: environment variable + registration fallback) is not yet confirmed under Proton
+- The Extension always uses the fixed `<userData>/OVLS_IPC_V2` directory; there is no discovery mechanism. The CLI requires `--ipc-dir`, the Python client uses `$OVLS_IPC_DIR` or `~/.ovls_ipc_v2`, and stale-file cleanup uses a hardcoded prefix path.
 - Heartbeat mechanism for session liveness is proposed but not runtime-verified
 - Wine path conversion between Extension (Windows paths) and client (Linux paths) is not confirmed

@@ -54,7 +54,6 @@ VERSION_NAME = "VERSION"
 BACKUP_DIRNAME = "backups"
 OLD_MANIFEST = "MANIFEST.sha256.old"
 OLD_VERSION = "VERSION.old"
-STEAM_COMPATDATA_APPID = "1712840"
 OVLS_PY = layout.OVLS_PY
 
 # Maximum number of backup snapshots to retain. Older backups are removed
@@ -146,14 +145,14 @@ def remove_config():
 
 
 def is_prefix(path):
-    return (Path(path).expanduser() / "pfx" / "drive_c" / "users").is_dir()
+    return steam.is_vortex_prefix(path)
 
 
-def detect_prefix(explicit=None):
-    """Return a usable Proton prefix or ``None``.
+def detect_prefix_candidates(explicit=None, include_generic=True):
+    """Return all valid Vortex prefixes in priority order (read-only).
 
-    Order: explicit argument, remembered prefix, known host locations, Steam
-    ``compatdata``. Nothing is created or changed here.
+    Order: explicit argument, remembered prefix, known host locations, then a
+    generic scan of Steam ``compatdata/*``. Nothing is created or changed here.
     """
     candidates = []
     if explicit:
@@ -163,13 +162,63 @@ def detect_prefix(explicit=None):
         candidates.append(remembered)
     candidates.append(Path.home() / "Windows" / "prefix")
     steam_root = steam.find_steam_root()
-    if steam_root:
-        candidates.append(Path(steam_root) / "steamapps" / "compatdata" / STEAM_COMPATDATA_APPID)
+    if steam_root and include_generic:
+        candidates.extend(steam.find_vortex_prefixes(steam_root))
+    found = []
+    seen = set()
     for candidate in candidates:
         path = Path(candidate).expanduser()
-        if is_prefix(path):
-            return path.resolve()
-    return None
+        if not is_prefix(path):
+            continue
+        try:
+            path = path.resolve()
+        except OSError:
+            pass
+        if path not in seen:
+            seen.add(path)
+            found.append(path)
+    return found
+
+
+def detect_prefix(explicit=None):
+    """Return an explicit/saved prefix or the only discovered Vortex prefix.
+
+    The generic ``compatdata/*`` scan is part of Install auto-detection: a
+    candidate is accepted only when it contains both ``pfx/drive_c/users/`` and
+    ``Vortex.exe``. Several matches stay ambiguous and are resolved by the
+    user-facing prefix list, never by taking the first directory blindly.
+    """
+    candidates = detect_prefix_candidates(explicit)
+    if not candidates:
+        return None
+    for chosen in (explicit, load_prefix()):
+        if not chosen:
+            continue
+        path = Path(chosen).expanduser()
+        try:
+            path = path.resolve()
+        except OSError:
+            pass
+        if path in candidates:
+            return path
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def prefix_search_message(explicit=None):
+    """Explain how to proceed when no unique prefix could be selected."""
+    candidates = detect_prefix_candidates(explicit)
+    if len(candidates) > 1:
+        lines = [
+            "Proton prefix not found: more than one Vortex prefix was found.",
+            "Pass --prefix /path/to/compatdata to choose one:",
+        ]
+        lines.extend(f"  {path}" for path in candidates)
+        return "\n".join(lines)
+    return (
+        "Proton prefix not found. Vortex not found; add vortex-setup-*.exe as a "
+        "non-Steam game in Steam, select a Proton compatibility tool (DW-Proton or "
+        "GE-Proton are recommended) and run it once, or pass --prefix /path/to/compatdata."
+    )
 
 
 def _sha256(path):
@@ -800,10 +849,7 @@ def install(package_root=None, prefix=None, dry_run=False, update=False):
         raise ValueError("OVLS is not installed; run install first")
     target_prefix = detect_prefix(prefix)
     if target_prefix is None:
-        raise ValueError(
-            "Proton prefix not found. Pass --prefix /path/to/compatdata "
-            "(the directory containing pfx/)"
-        )
+        raise ValueError(prefix_search_message(prefix))
 
     stamp = _stamp()
     if same:
@@ -911,6 +957,7 @@ def verify(prefix=None):
         return {
             "status": "attention_required",
             "reason": "prefix_not_found",
+            "message": prefix_search_message(prefix),
             "prefix": None,
             "copy": copy_state,
             "shortcuts": shortcut_state,
@@ -954,8 +1001,8 @@ def uninstall(prefix=None):
             "status": "blocked",
             "reason": "prefix_not_found",
             "message": (
-                "Proton prefix not found. Pass --prefix /path/to/compatdata; "
-                "the OVLS code copy and NXM integration were kept."
+                prefix_search_message(prefix)
+                + " The OVLS code copy and NXM integration were kept."
             ),
             "copy_kept": True,
         }

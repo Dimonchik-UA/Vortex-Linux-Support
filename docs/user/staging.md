@@ -10,12 +10,12 @@ When you download a mod in Vortex, it is first unpacked into a staging folder. V
 
 ## How OVLS helps
 
-If Vortex reports that mods cannot be deployed, OVLS offers a **"Move staging folder"** button in its notification. Clicking it:
+When Vortex reports a deployment failure, the staging folder is empty, and `host.json` provides a target on the same Wine drive, the extension shows a **"Move staging folder"** button in its notification. There is no separate manual "request fix" path. Clicking it:
 
 1. Creates a new staging folder on the same Wine disk as your game.
 2. Updates Vortex's staging setting to point to the new location.
 
-OVLS does not move your existing staging folder automatically — it offers the fix only when staging is empty or when you explicitly request it.
+OVLS never moves an existing non-empty staging folder. The button appears only for the deployment-failure notification (`test-valid-activator`), with empty staging and a same-drive target from `host.json`.
 
 ## Staging folder location
 
@@ -29,7 +29,7 @@ For Cyberpunk 2077 and similar games, both the game and the staging folder shoul
 
 ## Limitations
 
-- OVLS does not automatically move an existing non-empty staging folder. The move is offered only when staging is empty or when you explicitly trigger it.
+- OVLS does not move an existing non-empty staging folder. The move is offered only when Vortex reports the `test-valid-activator` deployment failure, staging is empty, and `host.json` provides a target on the same Wine disk; there is no manual trigger for this button.
 - Staging on SD cards and other non-home roots is not supported automatically.
 - SteamOS Game Mode has not been tested. R2/L2 triggers work via SteamOS input handling; other controller interactions with Vortex UI elements have not been fully tested.
 
