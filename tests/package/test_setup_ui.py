@@ -116,6 +116,24 @@ class SetupUiTest(unittest.TestCase):
         self.show_info.assert_called_once()
         self.assertIn("Installation completed", self.show_info.call_args[0][0])
 
+    def test_install_with_stale_extension_shows_warning(self):
+        result = {
+            "status": "attention_required",
+            "prefix": str(self.prefix),
+            "copy": {"status": "unchanged"},
+            "installation": {"extension": {"status": "stale_host"}},
+            "nxm_handler": {"status": "unchanged"},
+            "shortcuts": {"status": "ok", "skipped": []},
+        }
+        with mock.patch.object(setup_ui.package, "install", return_value=result):
+            setup_ui.action_install()
+
+        self.show_info.assert_not_called()
+        self.show_message.assert_called_once()
+        text = self.show_message.call_args[0][0]
+        self.assertIn("stale_host", text)
+        self.assertNotIn("Installation completed", text)
+
     def test_install_updates_an_existing_copy(self):
         self._manifest()
         result = {

@@ -20,7 +20,7 @@ After downloading or building the publication package, you will have a folder na
 - **SteamOS 3.x**, Desktop Mode (KDE Plasma)
 - **Steam** installed
 - **Official Vortex** installed in a Proton prefix
-- **DW-Proton or Proton-GE** (including "latest" builds) — recommended, not required (GE-Proton: case-insensitive name starting with `GE-Proton` or containing `Proton-GE`)
+- **DW-Proton Latest and Proton-GE Latest** — both recommended for use with OVLS, not required (case-insensitive GE-Proton name match: starts with `GE-Proton` or contains `Proton-GE`); both worked normally with Vortex in our tests
 - **Any other installed Proton** — works; OVLS uses the tool selected in Steam or the first available fallback
 - **Python 3**
 - **kdialog** or **zenity** (required for graphical dialogs; the command-line interface works without them)
@@ -38,7 +38,7 @@ The usual way to install official Vortex on SteamOS is to add `vortex-setup-*.ex
 - None found: OVLS explains how to install Vortex as a non-Steam game and opens a directory chooser so you can find the prefix yourself. On the command line, pass `--prefix /path/to/compatdata`. The chosen directory is validated before installation.
 - **Change prefix** is a separate Manager action: it always opens the directory chooser, even when a valid prefix is configured, and cancelling it leaves the configuration unchanged.
 
-Prefixes on additional Steam library drives (another disk or SD card) are not scanned in this version.
+Prefixes in additional Steam libraries (another disk or SD card) are scanned when those libraries are present and mounted. Staging targets for such libraries are included in `host.json` v2. If a library is temporarily unmounted, its existing staging target is retained only while it remains registered in Steam; removing the registration is detected by `verify`.
 
 ## Step 2: Close Vortex
 

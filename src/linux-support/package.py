@@ -37,6 +37,7 @@ from pathlib import Path
 
 import core
 import desktop
+import extension_installer
 import installer
 import layout
 import shortcuts
@@ -897,7 +898,7 @@ def install(package_root=None, prefix=None, dry_run=False, update=False):
             ovls_py=str(installed_entry_point() if same else (root / OVLS_PY)),
         )
         return {
-            "status": "ok",
+            "status": install_result.get("status", "ok"),
             "dry_run": True,
             "prefix": str(target_prefix),
             "copy": copy_result,
@@ -949,7 +950,7 @@ def install(package_root=None, prefix=None, dry_run=False, update=False):
         }
     save_prefix(target_prefix)
     return {
-        "status": "ok",
+        "status": install_result.get("status", "ok"),
         "prefix": str(target_prefix),
         "copy": copy_result,
         "installation": install_result,
@@ -1016,6 +1017,17 @@ def uninstall(prefix=None):
             "message": (
                 prefix_search_message(prefix)
                 + " The OVLS code copy and NXM integration were kept."
+            ),
+            "copy_kept": True,
+        }
+    if not extension_installer.is_installed(target_prefix):
+        return {
+            "status": "blocked",
+            "reason": "ovls_not_installed",
+            "message": (
+                "OVLS is not installed in this prefix: "
+                f"{target_prefix}. The OVLS code copy, shortcuts, NXM handler "
+                "and configuration were kept."
             ),
             "copy_kept": True,
         }

@@ -18,7 +18,7 @@ This checks:
 - **Vortex Extension**: The extension is installed in your Proton prefix
 - **Prefix**: Your Proton prefix is accessible and contains Vortex.exe
 
-If verify reports any problem, run **Install / Update** from OVLS Manager or `bash install.sh update` to repair the installation.
+For most problems, run **Install / Update** from OVLS Manager or `bash install.sh update` to repair the installation. This is **not** guaranteed for the Extension `host.json` states described below.
 
 ## Check your prefix
 
@@ -29,6 +29,21 @@ OVLS Manager includes a prefix check as part of **Install / Update** and **Verif
 - `Vortex.exe` exists at `pfx/drive_c/Program Files/Vortex/Vortex.exe`
 
 If any check fails, OVLS Manager will show an error message explaining what is wrong.
+
+## Extension `host.json` states
+
+`verify` reports the Extension state as one of the following. The two damaged states are **not** repaired by Install / Update; the installer leaves the file untouched and reports a warning instead of "Components updated".
+
+| State | Meaning | What to do |
+|-------|---------|------------|
+| `unchanged` | Installed Extension and `host.json` match the generated files. | Nothing. |
+| `drifted` / `missing_files` | A managed file differs from the generated version. | Run Install / Update; it rewrites only OVLS-owned files. |
+| `host_map_issues` | Count of damaged entries in the saved v2 `volumes` map. Non-zero means at least one saved volume was invalid and was not reused. | Run Install / Update; valid volumes are kept and the damaged entries are rebuilt when Steam libraries are available. |
+| `stale_host` | `host.json` exists but the prefix `z:` drive mapping (`pfx/dosdevices/z:`) is missing, so OVLS cannot describe host paths. | Restore the `z:` drive mapping in the prefix, then verify again. Install / Update will not overwrite or delete the existing file. Do not remove `host.json` unless you intend to lose the staging fix. |
+| `invalid_host_file` | `host.json` is a directory or symlink instead of a regular file. | Remove or rename that object yourself after inspecting it. OVLS will not replace or delete it, and uninstall will skip it. |
+| `host_map_unrepairable` | The installed v2 `volumes` map is damaged and cannot be rebuilt safely. A valid v2 map is preserved unchanged when Steam libraries are temporarily unavailable. | Repair or restore the Steam library registration, then verify again. OVLS will not downgrade the file to v1 or destroy the damage information. |
+
+A valid v1 `host.json` (only `modsRoot`) is still supported and stays byte-for-byte unchanged. Structural damage to a v2 map is counted even when `z:` is missing, although `stale_host` remains the reported status in that case.
 
 ## Diagnostic logs
 
@@ -55,11 +70,11 @@ Observed on Proton 11.0, Proton Hotfix, and Proton Experimental in SteamOS Deskt
 
 ### "Mods can't be deployed."
 
-This means your staging folder is on a different Wine disk than your game. **Solution:** Use the OVLS "Move staging folder" button in Vortex, or manually set your staging folder to the same drive as your game.
+This means your staging folder is on a different filesystem volume than your game; under Proton the Wine drive letters can be the same. **Solution:** Use the OVLS "Move staging folder" button in Vortex, or manually set your staging folder to the target volume for your Steam library.
 
 ### Vortex.exe not found in prefix
 
-OVLS could not find `Vortex.exe` at `pfx/drive_c/Program Files/Vortex/Vortex.exe` in your selected prefix. OVLS accepts a prefix from the config, a known location, or the Steam `compatdata/*` scan only when both `pfx/drive_c/users/` and `Vortex.exe` are present. If nothing is found, Install offers a directory chooser; **Change prefix** always opens it. **Solution:** Install the official Vortex by adding `vortex-setup-*.exe` as a non-Steam game and running it once with a Proton compatibility tool (DW-Proton or GE-Proton are recommended, but not required), or pass `--prefix /path/to/compatdata` explicitly. If another valid prefix is already installed, open **Change prefix** and select its directory manually. **Change prefix** opens a system dialog for manual directory selection and does not use the automatic list of found prefixes.
+OVLS could not find `Vortex.exe` at `pfx/drive_c/Program Files/Vortex/Vortex.exe` in your selected prefix. OVLS accepts a prefix from the config, a known location, or the Steam `compatdata/*` scan in the main root and in mounted additional libraries only when both `pfx/drive_c/users/` and `Vortex.exe` are present. If nothing is found, Install offers a directory chooser; **Change prefix** always opens it. **Solution:** Install the official Vortex by adding `vortex-setup-*.exe` as a non-Steam game and running it once with a Proton compatibility tool (DW-Proton or GE-Proton are recommended, but not required), or pass `--prefix /path/to/compatdata` explicitly. If another valid prefix is already installed, open **Change prefix** and select its directory manually. **Change prefix** opens a system dialog for manual directory selection and does not use the automatic list of found prefixes.
 
 ### NXM links do not open in Vortex
 
@@ -79,9 +94,9 @@ bash install.sh uninstall --prefix /path/to/your/prefix
 
 OVLS could not find any Proton installation. **Solution:** Install a Proton compatibility tool through Steam (DW-Proton or Proton-GE is recommended), select it for the Vortex shortcut, then re-run the installer.
 
-## Input limitations on Steam Deck
+## Input limitations in SteamOS Desktop Mode (KDE Plasma)
 
-The following input issues have been observed on Steam Deck in Desktop Mode (KDE Plasma). They are distinct from the window rendering issues above.
+The following input issues have been observed in SteamOS Desktop Mode (KDE Plasma). They are distinct from the window rendering issues above.
 
 ### Keyboard focus and text input not working
 

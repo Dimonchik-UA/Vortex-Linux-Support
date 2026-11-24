@@ -41,25 +41,42 @@ def _zenity(tool):
     return os.path.basename(tool).startswith("zenity")
 
 
-def choose_prefix(candidates):
-    """Ask the user to pick one of several discovered Vortex prefixes."""
+def choose_prefix(candidates, steam_root=None):
+    """Ask the user to pick one of several discovered Vortex prefixes.
+
+    The path remains the unique value returned by the dialog. The visible text
+    is a compact label, so long system paths and appids are not the primary
+    choice text.
+    """
     tool = launcher._dialog_tool()
     if tool is None:
         return None
+    root = steam_root
+    if root is None:
+        try:
+            root = package.steam.find_steam_root()
+        except Exception:
+            root = None
+    labels = [
+        package.steam.prefix_display_label(candidate, root) for candidate in candidates
+    ]
     question = "Several Vortex prefixes were found. Choose one:"
     if _zenity(tool):
         arguments = [
             "--list",
             f"--title={TITLE}",
+            "--hide-column=1",
             "--column=Prefix",
+            "--column=Location",
             f"--text={question}",
             "--print-column=1",
         ]
-        arguments.extend(str(path) for path in candidates)
+        for candidate, label in zip(candidates, labels):
+            arguments.extend([str(candidate), label])
     else:
         arguments = ["--menu", question]
-        for path in candidates:
-            arguments.extend([str(path), str(path)])
+        for candidate, label in zip(candidates, labels):
+            arguments.extend([str(candidate), label])
     result = launcher._run_dialog(tool, arguments)
     if result is None or result.returncode != 0:
         return None
@@ -179,12 +196,17 @@ def action_install():
         launcher.show_message(f"Installation failed:\n{exc}")
         return
     shortcuts = result.get("shortcuts") or {}
+    ext_status = result["installation"]["extension"]["status"]
+    extension_ok = ext_status in ("installed", "unchanged", "would_install")
+    heading = "Update completed." if update else "Installation completed."
+    if not extension_ok:
+        heading = f"Extension needs attention ({ext_status})."
     lines = [
-        "Update completed." if update else "Installation completed.",
+        heading,
         "",
         f"Prefix: {result.get('prefix') or prefix}",
         f"Installed copy: {result['copy']['status']}",
-        f"Extension: {result['installation']['extension']['status']}",
+        f"Extension: {ext_status}",
         f"NXM: {result['nxm_handler']['status']}",
         f"Shortcuts: {shortcuts.get('status', 'unknown')}",
     ]
@@ -192,7 +214,7 @@ def action_install():
     if notes:
         lines.extend(["", *notes])
     text = "\n".join(lines)
-    if result.get("status") == "ok" and shortcuts.get("status") == "ok":
+    if extension_ok and result.get("status") == "ok" and shortcuts.get("status") == "ok":
         launcher.show_info(text)
     else:
         launcher.show_message(text)

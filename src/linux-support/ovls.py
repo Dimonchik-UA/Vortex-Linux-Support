@@ -179,7 +179,7 @@ def cmd_install_extension(args):
     try:
         result = extension_installer.install_extension(args.source, args.prefix)
         print(json.dumps(result, indent=2, ensure_ascii=False))
-        return 0
+        return 0 if result.get("status") in ("installed", "unchanged") else 1
     except (OSError, ValueError) as exc:
         print(f"Extension installation failed: {exc}", file=sys.stderr)
         return 2
@@ -221,7 +221,7 @@ def cmd_install(args):
         )
         handler = result.get("nxm_handler", {})
         print(f"NXM handler: {handler.get('status', 'unknown')}", file=sys.stderr)
-        return 0
+        return 0 if result.get("status") == "ok" else 1
     except (OSError, ValueError) as exc:
         print(f"Installation failed: {exc}", file=sys.stderr)
         return 2
@@ -285,7 +285,9 @@ def cmd_package(args):
     if not args.prefix and result.get("reason") == "prefix_not_found":
         print(result.get("message", ""), file=sys.stderr)
     print(json.dumps(result, indent=2, ensure_ascii=False))
-    return 0 if result.get("status") in ("ok", "unchanged") else 1
+    return 0 if result.get("status") in (
+        "ok", "unchanged", "would_install", "would_update"
+    ) else 1
 
 
 def cmd_check_fs(args):

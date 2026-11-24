@@ -127,6 +127,19 @@ class ProtonSelectionTest(unittest.TestCase):
         self.show_info.assert_called_once()
         self.assertIn("DW-Proton or Proton-GE", self.show_info.call_args[0][0])
 
+    def test_config_info_resolves_tool_without_explicit_mapping(self):
+        tool = self._tool(self.common, "Proton 11.0")
+        prefix = self._prefix()
+        (prefix / "config_info").write_text(
+            "11.0-100\n"
+            f"{tool.parent}/files/share/fonts/\n"
+            f"{tool.parent}/files/lib/\n",
+            encoding="utf-8",
+        )
+
+        self.assertEqual(steam.selected_proton_name(prefix), "Proton 11.0")
+        self.assertEqual(launcher._select_proton(prefix), str(tool))
+
     def test_refusing_recommendation_does_not_abort_launch(self):
         self._tool(self.tools, "DW-Proton Latest")
         prefix = self._prefix()

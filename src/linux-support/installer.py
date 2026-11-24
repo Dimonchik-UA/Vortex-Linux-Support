@@ -187,9 +187,26 @@ def ensure_steam_library(prefix, steam_root=None, dry_run=False):
 
 def installed_state(prefix, source):
     """Compare installed Extension files with the source package."""
-    source_dir, source_bytes = extension_installer._read_source_package(source, prefix)
     _vortex_dir, plugins_dir = extension_installer.resolve_plugin_directory(prefix)
     target = plugins_dir / extension_installer.EXTENSION_ID
+    existing_host = extension_installer._read_installed_host(target)
+    try:
+        source_dir, source_bytes = extension_installer._read_source_package(
+            source, prefix, existing_host=existing_host
+        )
+    except extension_installer.HostMapRepairError as exc:
+        return {
+            "extension_id": extension_installer.EXTENSION_ID,
+            "target": str(target),
+            "source": str(Path(source).expanduser()),
+            "source_sha256": {},
+            "installed_sha256": {},
+            "missing": [],
+            "drifted": [],
+            "status": "host_map_unrepairable",
+            "reason": str(exc),
+            "host_map_issues": extension_installer._host_map_issues(existing_host, prefix),
+        }
     result = {
         "extension_id": extension_installer.EXTENSION_ID,
         "target": str(target),
@@ -198,6 +215,7 @@ def installed_state(prefix, source):
         "installed_sha256": {},
         "missing": [],
         "drifted": [],
+        "host_map_issues": extension_installer._host_map_issues(existing_host, prefix),
     }
     if target.is_symlink() or (target.exists() and not target.is_dir()):
         result["status"] = "invalid_target"
@@ -205,6 +223,17 @@ def installed_state(prefix, source):
     if not target.is_dir():
         result["status"] = "not_installed"
         result["missing"] = list(source_bytes)
+        return result
+
+    host_path = target / extension_installer.HOST_FILE
+    if (extension_installer.HOST_FILE not in source_bytes
+            and (host_path.is_symlink() or host_path.exists())):
+        result["status"] = "stale_host"
+        result["stale_host"] = str(host_path)
+        return result
+    if host_path.is_symlink() or (host_path.exists() and not host_path.is_file()):
+        result["status"] = "invalid_host_file"
+        result["invalid_host_file"] = str(host_path)
         return result
 
     for name in source_bytes:
@@ -331,9 +360,17 @@ def install(
     )
 
     before = installed_state(prefix_path, source)
+    no_install_statuses = (
+        "stale_host", "invalid_host_file", "host_map_unrepairable", "invalid_target"
+    )
     if dry_run:
+        # Do not promise an action that the real install would refuse.
+        preview = before["status"]
         extension_result = {
-            "status": "would_install" if before["status"] != "unchanged" else "unchanged",
+            "status": (
+                preview if preview in no_install_statuses
+                else "unchanged" if preview == "unchanged" else "would_install"
+            ),
             "extension_id": before["extension_id"],
             "target": before["target"],
         }
@@ -353,8 +390,9 @@ def install(
             ovls_py=ovls_py,
         )
 
+    extension_ok = extension_result["status"] in ("installed", "unchanged", "would_install")
     return {
-        "status": "ok",
+        "status": "ok" if extension_ok else "attention_required",
         "dry_run": dry_run,
         "installation": info,
         "vortex_registry": registry_result,

@@ -2,6 +2,37 @@
 
 This file records user-facing changes to OVLS. The newest version is listed first.
 
+## 0.3.0
+
+Extends Vortex prefix discovery to all registered Steam libraries and prepares staging for games installed outside the home filesystem. Version 0.3.0 is prepared in the working tree and is **not published yet**.
+
+### Added
+
+- Discovery of Vortex prefixes in every registered Steam library, not only the main Steam root. Libraries that are absent or unmounted are skipped instead of causing errors.
+- Storage-type labels in the prefix list: `Internal storage`, `SD card`, and `Storage type unknown`. The label is derived from filesystem and device attributes, not from the directory name.
+- `host.json` v2 with a volume map built from real filesystem mount points reported by `findmnt`. Games on different filesystems receive separate `modsRoot` values, and the Extension picks the most specific matching volume for staging.
+- A safety guard in Uninstall: if the selected prefix contains Vortex but no OVLS Extension, the operation is blocked and the installed copy, shortcuts, NXM handler and settings are kept.
+- Diagnostic states for stale, partially damaged and unrepairable `host.json` maps instead of silently reporting a healthy installation.
+
+### Changed
+
+- Manager uses the same validated prefix search for Install / Update and Uninstall; found prefixes are shown with their detected Proton version and storage type.
+- `Change prefix` remains a manual directory chooser. It does not install or move the Extension automatically.
+- Proton launch selection now resolves the tool recorded in the prefix's `config_info` when Steam has no `CompatToolMapping` entry, and uses it only if installed. The recommended-tool fallback (DW-Proton / Proton-GE, then any installed Proton) applies only when neither source yields an installed tool.
+- Documentation now lists both DW-Proton Latest and Proton-GE Latest as recommended for OVLS (both worked normally with Vortex in our tests). Compatibility recommendations are stated separately from the automatic selection order, with no preference between the two. Test observations are attributed to SteamOS Desktop Mode (KDE Plasma).
+- Staging is matched against real filesystem volumes rather than Wine drive letters, so games in additional Steam libraries can get a staging target on the game's own volume.
+- `host.json` v1 stays compatible: without `volumes`, the previous behavior is unchanged and existing v1 bytes are preserved. A library that is unmounted but still registered reuses its saved volume; removing a registration is reported as a real change.
+
+### Fixed
+
+- A leftover mount directory from an SD card no longer produces a false staging drift; the most specific saved anchor is reused.
+- A stale `host.json` without the `z:` mapping is reported as stale instead of being treated as unchanged or silently overwritten.
+- Partially damaged `volumes` entries no longer discard the valid ones and are counted as map issues; an unrepairable v2 map is never silently downgraded to v1.
+- A fully valid v2 map is preserved byte-for-byte when the Steam root is temporarily unavailable.
+- Prefix labels now show the Proton tool actually used for the prefix: the explicit Steam selection, or the installed tool from the prefix's `config_info` when there is no mapping entry. A truly unknown tool is labelled `Proton not detected` in English instead of the old Russian placeholder; no hard-coded appid-to-Proton mapping was added.
+
+**Not yet verified:** the full staging scenario on a physical SD card in a live Vortex session (Fix appears, staging moves to the SD volume, mod deploys). The implementation is ready; generation, reading, preservation and long-anchor selection were checked in tests and on a synthetic loop volume, but a real SD card still needs verification on SteamOS.
+
 ## 0.2.2
 
 Corrects a misleading error message when re-checking for updates after a successful installation.

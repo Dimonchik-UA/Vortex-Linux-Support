@@ -30,7 +30,7 @@ The installer copies OVLS code to `~/.local/share/ovls/` (autonomous copy), inst
 When launched, OVLS:
 
 1. Detects the Proton prefix (explicit argument, remembered prefix, or auto-detection)
-2. Launches the official Windows `Vortex.exe` through the Proton tool selected in Steam for the prefix (otherwise prefers DW-Proton / Proton-GE, then any Proton; no version is required. Proton-GE and DW-Proton Latest showed no window issues in testing; Proton 11.0, Hotfix, Experimental did)
+2. Resolves the prefix Proton tool from Steam's `CompatToolMapping` first, then from the installed tool recorded in `compatdata/<appid>/config_info`; prefers DW-Proton / Proton-GE and then any Proton only if neither source gives an installed tool (no version is required. Proton-GE and DW-Proton Latest showed no window issues in testing; Proton 11.0, Hotfix, Experimental did), and launches the official Windows `Vortex.exe` through it
 3. The Extension loads inside Vortex and connects back to OVLS via JSON IPC
 4. External component and Extension communicate via file-based JSON IPC
 

@@ -43,6 +43,13 @@ class PrefixDetectionTest(unittest.TestCase):
         )
         self.env.start()
         self.addCleanup(self.env.stop)
+        storage_patch = mock.patch.object(steam, "_findmnt_source", return_value="")
+        storage_patch.start()
+        self.addCleanup(storage_patch.stop)
+        # Messages use a real dialog tool by default; keep these tests offline.
+        message_patch = mock.patch.object(launcher, "show_message")
+        message_patch.start()
+        self.addCleanup(message_patch.stop)
 
     def tearDown(self):
         shutil.rmtree(self.root, ignore_errors=True)
@@ -314,7 +321,8 @@ class PrefixDetectionTest(unittest.TestCase):
             [
                 "--menu",
                 "Several Vortex prefixes were found. Choose one:",
-                str(first), str(first), str(second), str(second),
+                str(first), "Proton not detected — Storage type unknown",
+                str(second), "Proton not detected — Storage type unknown",
             ],
         )
 
@@ -330,16 +338,24 @@ class PrefixDetectionTest(unittest.TestCase):
 
         arguments = run.call_args[0][1]
         self.assertEqual(
-            arguments[:5],
+            arguments[:7],
             [
                 "--list",
                 f"--title={setup_ui.TITLE}",
+                "--hide-column=1",
                 "--column=Prefix",
+                "--column=Location",
                 "--text=Several Vortex prefixes were found. Choose one:",
                 "--print-column=1",
             ],
         )
-        self.assertEqual(arguments[5:], [str(first), str(second)])
+        self.assertEqual(
+            arguments[7:],
+            [
+                str(first), "Proton not detected — Storage type unknown",
+                str(second), "Proton not detected — Storage type unknown",
+            ],
+        )
 
     def test_choose_prefix_cancel_and_failed_dialog_return_none(self):
         first = self._make_prefix(self.root, "dialog-cancel")
@@ -404,3 +420,510 @@ class PrefixDetectionTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SteamLibraryPrefixDiscoveryTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix="ovls-libs-", dir=str(HERE)))
+        self.home = self.root / "home"
+        self.primary = self.home / ".local" / "share" / "Steam"
+        self.primary_compatdata = self.primary / "steamapps" / "compatdata"
+        self.primary_compatdata.mkdir(parents=True)
+        self.additional = self.root / "sd" / "SteamLibrary"
+        self.additional_compatdata = self.additional / "steamapps" / "compatdata"
+        self.additional_compatdata.mkdir(parents=True)
+        self.env = mock.patch.dict(
+            os.environ,
+            {
+                "HOME": str(self.home),
+                "XDG_CONFIG_HOME": str(self.root / "config"),
+                "XDG_DATA_HOME": str(self.root / "data"),
+                "XDG_STATE_HOME": str(self.root / "state"),
+            },
+        )
+        self.env.start()
+        self.addCleanup(self.env.stop)
+        storage_patch = mock.patch.object(steam, "_findmnt_source", return_value="")
+        storage_patch.start()
+        self.addCleanup(storage_patch.stop)
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def _make_prefix(self, parent, appid):
+        prefix = parent / str(appid)
+        (prefix / "pfx" / "drive_c" / "users").mkdir(parents=True)
+        vortex = prefix / "pfx" / "drive_c" / "Program Files" / "Vortex"
+        vortex.mkdir(parents=True, exist_ok=True)
+        (vortex / "Vortex.exe").write_bytes(b"stub")
+        return prefix.resolve()
+
+    def _write_library_folders(self, libraries):
+        vdf = self.primary / "steamapps" / "libraryfolders.vdf"
+        vdf.parent.mkdir(parents=True, exist_ok=True)
+        lines = ['"libraryfolders"', "{"]
+        for index, library in enumerate(libraries):
+            lines.append(f'    "{index}"')
+            lines.append("    {")
+            lines.append(f'        "path"        "{str(library)}"')
+            lines.append("    }")
+        lines.append("}")
+        vdf.write_text("\n".join(lines), encoding="utf-8")
+
+    def test_vortex_prefix_in_additional_library_is_discovered(self):
+        additional_prefix = self._make_prefix(self.additional_compatdata, 222)
+
+        self._write_library_folders([self.primary, self.additional])
+
+        self.assertEqual(steam.find_vortex_prefixes(), [additional_prefix])
+        self.assertEqual(package.detect_prefix_candidates(), [additional_prefix])
+        self.assertEqual(package.detect_prefix(), additional_prefix)
+
+    def test_vortex_prefixes_in_several_libraries_are_discovered(self):
+        primary_prefix = self._make_prefix(self.primary_compatdata, 111)
+        additional_prefix = self._make_prefix(self.additional_compatdata, 222)
+
+        self._write_library_folders([self.primary, self.additional])
+
+        self.assertEqual(
+            steam.find_vortex_prefixes(),
+            sorted([primary_prefix, additional_prefix]),
+        )
+
+    def test_missing_additional_library_is_skipped(self):
+        primary_prefix = self._make_prefix(self.primary_compatdata, 111)
+        missing = self.root / "missing" / "SteamLibrary"
+
+        self._write_library_folders([self.primary, missing])
+
+        self.assertEqual(steam.find_vortex_prefixes(), [primary_prefix])
+
+    def test_library_without_compatdata_is_skipped(self):
+        primary_prefix = self._make_prefix(self.primary_compatdata, 111)
+        empty_library = self.root / "empty" / "SteamLibrary"
+        empty_library.mkdir(parents=True)
+
+        self._write_library_folders([self.primary, empty_library])
+
+        self.assertEqual(steam.find_vortex_prefixes(), [primary_prefix])
+
+    def test_duplicate_library_paths_are_scanned_once(self):
+        prefix = self._make_prefix(self.primary_compatdata, 111)
+
+        with mock.patch.object(
+            steam, "read_library_folders", return_value=[self.primary, self.primary]
+        ):
+            self.assertEqual(steam.find_vortex_prefixes(self.primary), [prefix])
+
+    def test_empty_library_list_returns_no_prefixes(self):
+        with mock.patch.object(steam, "read_library_folders", return_value=[]):
+            self.assertEqual(steam.find_vortex_prefixes(self.primary), [])
+
+    def test_inaccessible_compatdata_is_skipped(self):
+        prefix = self._make_prefix(self.primary_compatdata, 111)
+        inaccessible = self.root / "locked" / "SteamLibrary"
+        (inaccessible / "steamapps" / "compatdata").mkdir(parents=True)
+        self._write_library_folders([self.primary, inaccessible])
+
+        target = inaccessible / "steamapps" / "compatdata"
+        original_iterdir = Path.iterdir
+
+        def failing_iterdir(path):
+            if Path(path) == target:
+                raise PermissionError("denied")
+            return original_iterdir(path)
+
+        with mock.patch.object(Path, "iterdir", failing_iterdir):
+            self.assertEqual(steam.find_vortex_prefixes(), [prefix])
+
+
+class PrefixDisplayLabelTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix="ovls-label-", dir=str(HERE)))
+        self.home = self.root / "home"
+        self.primary = self.home / ".local" / "share" / "Steam"
+        self.primary_compatdata = self.primary / "steamapps" / "compatdata"
+        self.primary_compatdata.mkdir(parents=True)
+        self.additional = self.root / "sd" / "SteamLibrary"
+        self.additional_compatdata = self.additional / "steamapps" / "compatdata"
+        self.additional_compatdata.mkdir(parents=True)
+        self.env = mock.patch.dict(
+            os.environ,
+            {
+                "HOME": str(self.home),
+                "XDG_CONFIG_HOME": str(self.root / "config"),
+                "XDG_DATA_HOME": str(self.root / "data"),
+                "XDG_STATE_HOME": str(self.root / "state"),
+            },
+        )
+        self.env.start()
+        self.addCleanup(self.env.stop)
+        storage_patch = mock.patch.object(steam, "_findmnt_source", return_value="")
+        storage_patch.start()
+        self.addCleanup(storage_patch.stop)
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def _make_prefix(self, parent, appid):
+        prefix = parent / str(appid)
+        (prefix / "pfx" / "drive_c" / "users").mkdir(parents=True)
+        vortex = prefix / "pfx" / "drive_c" / "Program Files" / "Vortex"
+        vortex.mkdir(parents=True, exist_ok=True)
+        (vortex / "Vortex.exe").write_bytes(b"stub")
+        return prefix.resolve()
+
+    def test_proton_display_name_normalizes_known_versions(self):
+        self.assertEqual(steam.proton_display_name(None), "Proton not detected")
+        self.assertEqual(steam.proton_display_name("Proton - Experimental"), "Proton Experimental")
+        self.assertEqual(steam.proton_display_name("Proton 11.0"), "Proton 11.0")
+        self.assertEqual(steam.proton_display_name("GE-Proton9-20"), "Proton-GE Latest")
+        self.assertEqual(steam.proton_display_name("Proton Hotfix"), "Proton Hotfix")
+        self.assertEqual(steam.proton_display_name("MyCustom Proton 42"), "MyCustom Proton 42")
+
+    def test_prefix_location_uses_primary_and_additional_libraries(self):
+        primary_prefix = self._make_prefix(self.primary_compatdata, 111)
+        additional_prefix = self._make_prefix(self.additional_compatdata, 222)
+
+        vdf = self.primary / "steamapps" / "libraryfolders.vdf"
+        vdf.parent.mkdir(parents=True, exist_ok=True)
+        vdf.write_text(
+            '"libraryfolders"\n{\n'
+            '    "0"\n    {\n        "path"        "%s"\n    }\n'
+            '    "1"\n    {\n        "path"        "%s"\n    }\n}\n'
+            % (self.primary, self.additional),
+            encoding="utf-8",
+        )
+
+        self.assertEqual(steam.prefix_location(primary_prefix), "Storage type unknown")
+        self.assertEqual(steam.prefix_location(additional_prefix), "Storage type unknown")
+
+    def test_prefix_display_label_combines_proton_and_location(self):
+        prefix = self._make_prefix(self.primary_compatdata, 333)
+        (self.primary / "config").mkdir(parents=True, exist_ok=True)
+        (self.primary / "config" / "config.vdf").write_text(
+            '"CompatToolMapping"\n{\n'
+            '    "333"\n    {\n'
+            '        "name"        "Proton 11.0"\n'
+            '    }\n}\n',
+            encoding="utf-8",
+        )
+
+        self.assertEqual(
+            steam.prefix_display_label(prefix),
+            "Proton 11.0 — Storage type unknown",
+        )
+
+    def _record_config_info(self, prefix, tool_base, tool_name):
+        tool = tool_base / tool_name
+        tool.mkdir(parents=True, exist_ok=True)
+        executable = tool / "proton"
+        executable.write_text("#!/bin/sh\n", encoding="utf-8")
+        executable.chmod(0o755)
+        (prefix / "config_info").write_text(
+            "11.0-100\n"
+            f"{tool}/files/share/fonts/\n"
+            f"{tool}/files/lib/\n"
+            f"{self.primary}\n",
+            encoding="utf-8",
+        )
+
+    def test_prefix_without_mapping_uses_proton_from_config_info(self):
+        # Real case: AppID 2300422584 has no CompatToolMapping entry, but Steam
+        # created its prefix with Proton 11.0 and recorded that in config_info.
+        prefix = self._make_prefix(self.primary_compatdata, 2300422584)
+        self._record_config_info(
+            prefix, self.primary / "steamapps" / "common", "Proton 11.0"
+        )
+
+        self.assertEqual(steam.selected_proton_name(prefix), "Proton 11.0")
+        self.assertEqual(
+            steam.prefix_display_label(prefix),
+            "Proton 11.0 — Storage type unknown",
+        )
+
+    def test_explicit_mapping_still_reports_dw_proton(self):
+        # Real case: AppID 4042394972 has an explicit CompatToolMapping entry.
+        prefix = self._make_prefix(self.primary_compatdata, 4042394972)
+        (self.primary / "config").mkdir(parents=True, exist_ok=True)
+        (self.primary / "config" / "config.vdf").write_text(
+            '"CompatToolMapping"\n{\n'
+            '    "4042394972"\n    {\n'
+            '        "name"        "DW-Proton Latest"\n'
+            '    }\n}\n',
+            encoding="utf-8",
+        )
+        self._record_config_info(
+            prefix, self.primary / "compatibilitytools.d", "DW-Proton Latest"
+        )
+
+        self.assertEqual(steam.selected_proton_name(prefix), "DW-Proton Latest")
+        self.assertEqual(
+            steam.prefix_display_label(prefix),
+            "DW-Proton Latest — Storage type unknown",
+        )
+
+    def test_unknown_proton_uses_english_placeholder(self):
+        prefix = self._make_prefix(self.primary_compatdata, 999)
+
+        self.assertIsNone(steam.selected_proton_name(prefix))
+        self.assertEqual(
+            steam.prefix_display_label(prefix),
+            "Proton not detected — Storage type unknown",
+        )
+
+    def test_choose_prefix_returns_selected_path_with_compact_labels(self):
+        first = self._make_prefix(self.primary_compatdata, 111)
+        second = self._make_prefix(self.primary_compatdata, 222)
+        result = mock.Mock(returncode=0, stdout=str(second))
+
+        with mock.patch.object(
+            setup_ui.launcher, "_dialog_tool", return_value="/usr/bin/kdialog"
+        ), mock.patch.object(
+            setup_ui.launcher, "_run_dialog", return_value=result
+        ) as run:
+            self.assertEqual(setup_ui.choose_prefix([first, second]), second)
+
+        self.assertEqual(
+            run.call_args[0][1],
+            [
+                "--menu",
+                "Several Vortex prefixes were found. Choose one:",
+                str(first), "Proton not detected — Storage type unknown",
+                str(second), "Proton not detected — Storage type unknown",
+            ],
+        )
+
+    def test_choose_prefix_zenity_returns_path_from_second_column(self):
+        first = self._make_prefix(self.primary_compatdata, 111)
+        second = self._make_prefix(self.primary_compatdata, 222)
+        result = mock.Mock(returncode=0, stdout=str(second) + "\n")
+
+        with mock.patch.object(
+            setup_ui.launcher, "_dialog_tool", return_value="/usr/bin/zenity"
+        ), mock.patch.object(
+            setup_ui.launcher, "_run_dialog", return_value=result
+        ) as run:
+            self.assertEqual(setup_ui.choose_prefix([first, second]), second)
+
+        arguments = run.call_args[0][1]
+        self.assertEqual(
+            arguments[:7],
+            [
+                "--list",
+                f"--title={setup_ui.TITLE}",
+                "--hide-column=1",
+                "--column=Prefix",
+                "--column=Location",
+                "--text=Several Vortex prefixes were found. Choose one:",
+                "--print-column=1",
+            ],
+        )
+        self.assertEqual(
+            arguments[7:],
+            [
+                str(first), "Proton not detected — Storage type unknown",
+                str(second), "Proton not detected — Storage type unknown",
+            ],
+        )
+
+
+class PrefixLocationRobustnessTest(unittest.TestCase):
+    def test_media_mount_path_alone_is_never_sd(self):
+        with mock.patch.object(steam, "_findmnt_source", return_value="/dev/sdb1"), \
+             mock.patch.object(steam, "_udev_id_path", return_value="usb-0000:00:14.0-2"):
+            self.assertEqual(
+                steam.storage_device_type(
+                    Path("/run/media/deck/SD/SteamLibrary/steamapps/compatdata/1")
+                ),
+                "Storage type unknown",
+            )
+
+    def test_missing_findmnt_result_is_not_false_sd(self):
+        with mock.patch.object(steam, "_findmnt_source", return_value=""):
+            self.assertEqual(
+                steam.prefix_location(Path("/mnt/extra/SteamLibrary/steamapps/compatdata/1")),
+                "Storage type unknown",
+            )
+
+    def test_mmc_substring_without_card_type_is_not_false_sd(self):
+        # eMMC is MMC too: a substring in ID_PATH must not become "SD card".
+        with mock.patch.object(steam, "_findmnt_source", return_value="/dev/mmcblk0p1"), \
+             mock.patch.object(steam, "_udev_id_path", return_value="platform-fd80000.sdhci-mmc-1"):
+            self.assertEqual(
+                steam.prefix_location(
+                    Path("/home/deck/extra/SteamLibrary/steamapps/compatdata/1"),
+                    steam_root=Path("/home/deck/.local/share/Steam"),
+                ),
+                "Storage type unknown",
+            )
+
+
+class StorageDeviceTypeTest(unittest.TestCase):
+    """Classification from findmnt SOURCE and the kernel MMC card ``type``."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix="ovls-storage-"))
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.devices = self.root / "devices"
+        self.block_root = self.root / "block"
+        self.mmc_root = self.root / "mmc"
+        self.block_root.mkdir()
+        self.mmc_root.mkdir()
+        block_patch = mock.patch.object(steam, "_BLOCK_ROOT", str(self.block_root))
+        mmc_patch = mock.patch.object(steam, "_MMC_DEVICES_ROOT", str(self.mmc_root))
+        for patch in (block_patch, mmc_patch):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def _add_mmc_card(self, card_type, card_name="mmcblk0", partition="mmcblk0p1"):
+        """Emulate sysfs: a card with a ``type`` file and its partition."""
+        card = self.devices / card_name
+        part = card / partition
+        part.mkdir(parents=True, exist_ok=True)
+        (card / "type").write_text(card_type + "\n", encoding="utf-8")
+        (self.block_root / partition).symlink_to(part)
+        (self.mmc_root / "mmc0:aaaa").symlink_to(card)
+        return "/dev/" + partition
+
+    def _type_for(self, source, id_path=""):
+        # Mirror the real helper: an empty block name never yields an ID_PATH.
+        def udev_for(name):
+            return id_path if name else ""
+
+        with mock.patch.object(steam, "_findmnt_source", return_value=source), \
+             mock.patch.object(steam, "_udev_id_path", side_effect=udev_for):
+            return steam.storage_device_type(Path("/mnt/test/prefix"))
+
+    def test_sd_card_type_is_sd(self):
+        source = self._add_mmc_card("SD")
+        self.assertEqual(
+            self._type_for(source, "platform-fd80000.sdhci-mmc-1"),
+            "SD card",
+        )
+
+    def test_emmc_type_is_internal(self):
+        source = self._add_mmc_card("MMC")
+        self.assertEqual(
+            self._type_for(source, "platform-fd80000.sdhci-mmc-0"),
+            "Internal storage",
+        )
+
+    def test_internal_nvme_is_internal(self):
+        self.assertEqual(
+            self._type_for("/dev/nvme0n1p8", "pci-0000:61:00.0-nvme-1"),
+            "Internal storage",
+        )
+
+    def test_nvme_with_btrfs_subvolume_suffix_is_internal(self):
+        self.assertEqual(
+            self._type_for("/dev/nvme0n1p8[/@home]", "pci-0000:61:00.0-nvme-1"),
+            "Internal storage",
+        )
+
+    def test_mmc_with_btrfs_subvolume_suffix_is_sd(self):
+        source = self._add_mmc_card("SD")
+        self.assertEqual(
+            self._type_for(source + "[/@]", "platform-fd80000.sdhci-mmc-1"),
+            "SD card",
+        )
+
+    def test_plain_sda_source_is_unknown(self):
+        self.assertEqual(
+            self._type_for("/dev/sda1", "usb-0000:00:14.0-2"),
+            "Storage type unknown",
+        )
+
+    def test_unknown_and_malformed_sources_are_unknown(self):
+        self.assertEqual(
+            self._type_for("garbage"),
+            "Storage type unknown",
+        )
+        for source in ("/dev/nvme0n1p8[/@home", "/dev/mapper/vg-lv[/@]junk"):
+            with self.subTest(source=source):
+                self.assertEqual(
+                    self._type_for(source, "pci-0000:61:00.0-nvme-1"),
+                    "Storage type unknown",
+                )
+
+    def test_findmnt_source_uses_nofsroot(self):
+        completed = mock.Mock(returncode=0, stdout="/dev/nvme0n1p8\n")
+        with mock.patch.object(steam.subprocess, "run", return_value=completed) as run:
+            self.assertEqual(
+                steam._findmnt_source(Path("/mnt/test/prefix")),
+                "/dev/nvme0n1p8",
+            )
+        self.assertEqual(run.call_args[0][0][0], "findmnt")
+        self.assertIn("-v", run.call_args[0][0])
+
+    def test_block_device_name_accepts_plain_and_suffixed_sources(self):
+        with mock.patch.object(
+            steam.os.path, "realpath", side_effect=lambda value: value
+        ):
+            for source, expected in (
+                ("/dev/nvme0n1p8", "nvme0n1p8"),
+                ("/dev/nvme0n1p8[/@home]", "nvme0n1p8"),
+                ("/dev/mmcblk0p1[/@]", "mmcblk0p1"),
+                ("/dev/sda1", "sda1"),
+                ("/dev/mapper/vg-lv[/@]", "vg-lv"),
+            ):
+                with self.subTest(source=source):
+                    self.assertEqual(steam._block_device_name(source), expected)
+
+    def test_block_device_name_rejects_invalid_sources(self):
+        with mock.patch.object(
+            steam.os.path, "realpath", side_effect=lambda value: value
+        ):
+            for source in (
+                "",
+                "/dev/",
+                "/dev/nvme0n1p8[/@home",
+                "/dev/nvme0n1p8[@]",
+                "/dev/mapper/vg-lv[/@]junk",
+            ):
+                with self.subTest(source=source):
+                    self.assertEqual(steam._block_device_name(source), "")
+
+    def test_nvme_without_internal_confirmation_is_unknown(self):
+        self.assertEqual(self._type_for("/dev/nvme0n1p8"), "Storage type unknown")
+
+    def test_usb_storage_is_unknown(self):
+        self.assertEqual(
+            self._type_for("/dev/sdb1", "usb-0000:00:14.0-2"),
+            "Storage type unknown",
+        )
+
+    def test_usb_card_reader_is_unknown(self):
+        # usb-storage exposes the card as /dev/sdX with no MMC card in sysfs.
+        self.assertEqual(
+            self._type_for("/dev/sdb1", "usb-0000:00:14.0-2-scsi-0:0:0:0"),
+            "Storage type unknown",
+        )
+
+    def test_missing_sysfs_is_unknown(self):
+        self.assertEqual(
+            self._type_for("/dev/mmcblk0p1", "platform-fd80000.sdhci-mmc-1"),
+            "Storage type unknown",
+        )
+
+    def test_unknown_card_type_is_unknown(self):
+        source = self._add_mmc_card("SDIO")
+        self.assertEqual(self._type_for(source), "Storage type unknown")
+
+    def test_findmnt_error_is_unknown(self):
+        failed = mock.Mock(returncode=1, stdout="")
+        with mock.patch.object(steam.subprocess, "run", return_value=failed):
+            self.assertEqual(
+                steam.storage_device_type(Path("/mnt/test/prefix")),
+                "Storage type unknown",
+            )
+
+    def test_findmnt_unavailable_is_unknown(self):
+        with mock.patch.object(steam.subprocess, "run", side_effect=FileNotFoundError):
+            self.assertEqual(
+                steam.storage_device_type(Path("/mnt/test/prefix")),
+                "Storage type unknown",
+            )
+
+    def test_non_device_mount_source_is_unknown(self):
+        self.assertEqual(self._type_for("proc"), "Storage type unknown")

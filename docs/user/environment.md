@@ -9,16 +9,18 @@ OVLS runs on SteamOS/Linux and enables the official Windows version of Vortex to
 | SteamOS 3.x | Supported | Desktop Mode (KDE Plasma) |
 | SteamOS Game Mode | Not tested | |
 | Proton-GE Latest | Normal in testing | Recommended choice |
-| DW-Proton Latest | Normal in testing | |
+| DW-Proton Latest | Normal in testing | Recommended choice |
 | Proton 11.0 | Window and cursor issues observed in testing | |
 | Proton Hotfix | Window and cursor issues observed in testing | |
 | Proton Experimental | Window and cursor issues observed in testing | |
 | Python 3 | Required | Needed to run OVLS |
 | kdialog or zenity | Required for GUI | CLI works without either |
 
+Both DW-Proton Latest and Proton-GE Latest are recommended for use with OVLS; both worked normally with Vortex in our tests. These compatibility recommendations do not change the automatic selection order below, do not prefer one over the other, and are not requirements.
+
 ## Proton selection
 
-OVLS uses the Proton tool selected in Steam for the Vortex prefix. If Steam has no selection, it prefers **DW-Proton** or **Proton-GE** (including "latest" builds); if neither is installed, it uses another installed Proton version. No specific version is required. GE-Proton is recognised by a case-insensitive directory name that starts with `GE-Proton` or contains `Proton-GE`.
+OVLS resolves the Proton tool for the Vortex prefix from `config/config.vdf → CompatToolMapping`; if there is no entry for that appid, it uses the tool recorded in `compatdata/<appid>/config_info`, provided that tool is installed. If neither source gives an installed tool, it prefers **DW-Proton** or **Proton-GE** (including "latest" builds); if neither is installed, it uses another installed Proton version. No specific version is required. GE-Proton is recognised by a case-insensitive directory name that starts with `GE-Proton` or contains `Proton-GE`.
 
 ### Tested Proton versions
 
@@ -46,9 +48,9 @@ On Proton-GE Latest and DW-Proton Latest, these issues were not observed in the 
 
 The cause of these differences has not been determined. The issues are not attributed to a specific component (Proton, Wine, KDE, or Vortex), and the results should not be assumed to apply to all systems.
 
-## Input limitations on Steam Deck
+## Input limitations in SteamOS Desktop Mode (KDE Plasma)
 
-The following input issues have been observed on Steam Deck in Desktop Mode (KDE Plasma). They are distinct from the window rendering issues above.
+The following input issues have been observed in SteamOS Desktop Mode (KDE Plasma). They are distinct from the window rendering issues above.
 
 | Category | Observation |
 |----------|-------------|
@@ -85,11 +87,13 @@ Prefix locations used automatically, in order:
 1. The prefix you explicitly select
 2. A previously selected prefix (saved in your OVLS config)
 3. `~/Windows/prefix`
-4. Every `<Steam root>/steamapps/compatdata/<appid>` prefix that actually contains Vortex. The appid is assigned by Steam and differs between users.
+4. Every `<Steam root>/steamapps/compatdata/<appid>` prefix that actually contains Vortex, including roots in additional Steam libraries that are present and mounted. The appid is assigned by Steam and differs between users.
 
 **Install / Update** uses this search: if exactly one Vortex is found, its prefix is used automatically; if several are found, you get a list to choose from; if none is found, OVLS says so and opens a directory chooser. The chosen path is validated before installation. **Change prefix** is separate: it always opens the directory chooser and never substitutes an automatically found prefix. Cancelling it leaves the saved configuration unchanged.
 
-Both `pfx/drive_c/users/` and `Vortex.exe` are required: a directory that only has `users/` is not treated as a Vortex installation. Only the main Steam root is scanned; prefixes on additional Steam library drives are not covered. DW-Proton and GE-Proton are recommended for running Vortex, but they are not required and are not used to detect the prefix.
+Both `pfx/drive_c/users/` and `Vortex.exe` are required: a directory that only has `users/` is not treated as a Vortex installation. Additional Steam libraries are scanned when they are present and mounted; an unmounted library cannot be searched until its filesystem is available. DW-Proton and GE-Proton are recommended for running Vortex, but they are not required and are not used to detect the prefix.
+
+When several prefixes are shown, each is labelled with the detected Proton version and storage type: `Internal storage`, `SD card`, or `Storage type unknown`. The label comes from the filesystem device (kernel MMC type for SD/eMMC, udev data for internal NVMe), not from the directory name. A real SD card has not been verified in the test environment; USB card readers and unknown devices are reported as `Storage type unknown`.
 
 ## Python requirements
 

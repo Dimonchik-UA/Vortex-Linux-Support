@@ -109,6 +109,24 @@ class ManagerTest(unittest.TestCase):
         self.show_info.assert_called_once()
         self.show_message.assert_not_called()
 
+    def test_install_with_stale_extension_is_not_reported_as_success(self):
+        result = {
+            "status": "attention_required",
+            "prefix": str(self.prefix),
+            "copy": {"app": str(package.app_root())},
+            "installation": {"extension": {"status": "stale_host"}},
+            "nxm_handler": {"status": "unchanged"},
+            "shortcuts": {"status": "ok", "skipped": []},
+        }
+        with mock.patch.object(manager.package, "install", return_value=result):
+            manager.action_install(prefix=str(self.prefix))
+
+        self.show_info.assert_not_called()
+        self.show_message.assert_called_once()
+        text = self.show_message.call_args[0][0]
+        self.assertIn("stale_host", text)
+        self.assertNotIn("Components updated", text)
+
     def test_install_handler_auto_detects_a_single_vortex_prefix(self):
         # No prefix passed to the button handler: Manager must scan Steam.
         self.detect_prefix_patch.stop()

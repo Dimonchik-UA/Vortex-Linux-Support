@@ -356,8 +356,12 @@ def action_install(prefix=None):
 
     shortcuts = result.get("shortcuts") or {}
     gh = result.get("github_update") or {}
+    ext_status = result["installation"]["extension"]["status"]
+    extension_ok = ext_status in ("installed", "unchanged", "would_install")
     title = "Components updated."
-    if gh.get("status") == "installed":
+    if not extension_ok:
+        title = f"Extension needs attention ({ext_status})."
+    elif gh.get("status") == "installed":
         version = gh.get("version") or "new version"
         title = f"OVLS update installed ({version})."
 
@@ -374,7 +378,7 @@ def action_install(prefix=None):
         lines.extend(["", *notes])
     if cache_warning:
         lines.extend(["", cache_warning])
-    if shortcuts.get("status") == "ok":
+    if extension_ok and shortcuts.get("status") == "ok":
         launcher.show_info("\n".join(lines))
     else:
         launcher.show_message("\n".join(lines))
@@ -423,9 +427,8 @@ def action_verify():
 
 
 def action_uninstall():
-    prefix = current_prefix()
+    prefix = _require_prefix()
     if not prefix:
-        launcher.show_message("Prefix is not configured. Select it first with Change prefix.")
         return
     if not _confirm(
         "Remove OVLS components (Extension, NXM, shortcuts)?\n\n"

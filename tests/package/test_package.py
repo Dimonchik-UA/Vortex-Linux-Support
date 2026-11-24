@@ -133,6 +133,12 @@ class PackageTest(unittest.TestCase):
             package_root=str(self.package), prefix=str(self.prefix), **kwargs
         )
 
+    def _extension_target(self):
+        _vortex_dir, plugins_dir = extension_installer.resolve_plugin_directory(
+            self.prefix
+        )
+        return plugins_dir / extension_installer.EXTENSION_ID
+
     def test_install_copies_package_and_configures_prefix(self):
         result = self._install()
 
@@ -142,7 +148,7 @@ class PackageTest(unittest.TestCase):
         self.assertTrue((self.app / "README.md").is_file(), "user guide must be installed")
         self.assertIn("README.md", (self.app / "MANIFEST.sha256").read_text(encoding="utf-8"))
         self.assertEqual(
-            (self.app / "VERSION").read_text(encoding="utf-8").strip(), "0.2.2"
+            (self.app / "VERSION").read_text(encoding="utf-8").strip(), "0.3.0"
         )
         self.assertTrue((self.app / "install.sh").is_file())
         self.assertTrue((self.app / "src" / "linux-support" / "ovls.py").is_file())
@@ -315,7 +321,7 @@ class PackageTest(unittest.TestCase):
         original = (self.app / "src" / "linux-support" / "core.py").read_bytes()
 
         support = self.package / "src" / "linux-support"
-        (support / "core.py").write_text('VERSION = "0.3.0"\n# new version\n', encoding="utf-8")
+        (support / "core.py").write_text('VERSION = "0.3.1"\n# new version\n', encoding="utf-8")
         (support / "extra.py").write_text("EXTRA = True\n", encoding="utf-8")
 
         with mock.patch.object(installer, "install", side_effect=OSError("boom")):
@@ -373,6 +379,75 @@ class PackageTest(unittest.TestCase):
         self.assertTrue((self.apps_dir / "ovls-vortex.desktop").is_file())
         self.assertTrue((self.desktop_dir / "ovls-vortex.desktop").is_file())
 
+    def test_uninstall_without_ovls_keeps_copy(self):
+        self._install()
+        shutil.rmtree(self._extension_target())
+
+        with mock.patch.object(package.installer, "uninstall") as installer_uninstall, \
+             mock.patch.object(package.shortcuts, "remove") as shortcuts_remove, \
+             mock.patch.object(package, "remove_copy") as remove_copy, \
+             mock.patch.object(package, "remove_config") as remove_config:
+            result = package.uninstall(prefix=str(self.prefix))
+
+        installer_uninstall.assert_not_called()
+        shortcuts_remove.assert_not_called()
+        remove_copy.assert_not_called()
+        remove_config.assert_not_called()
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["reason"], "ovls_not_installed")
+        self.assertTrue(result["copy_kept"])
+        self.assertTrue((self.app / "src" / "linux-support" / "ovls.py").is_file())
+        self.assertTrue((self.config / "ovls" / "config.json").is_file())
+        self.assertTrue((self.apps_dir / "ovls-vortex.desktop").is_file())
+        self.assertTrue((self.desktop_dir / "ovls-vortex.desktop").is_file())
+        self.assertTrue((self.app / "ovls-nxm").is_file())
+
+    def test_uninstall_with_damaged_extension_is_blocked(self):
+        self._install()
+        # The directory exists but is no longer a valid OVLS Extension.
+        (self._extension_target() / "info.json").unlink()
+
+        with mock.patch.object(package.installer, "uninstall") as installer_uninstall, \
+             mock.patch.object(package.shortcuts, "remove") as shortcuts_remove, \
+             mock.patch.object(package, "remove_copy") as remove_copy, \
+             mock.patch.object(package, "remove_config") as remove_config:
+            result = package.uninstall(prefix=str(self.prefix))
+
+        installer_uninstall.assert_not_called()
+        shortcuts_remove.assert_not_called()
+        remove_copy.assert_not_called()
+        remove_config.assert_not_called()
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["reason"], "ovls_not_installed")
+        self.assertTrue((self.app / "src" / "linux-support" / "ovls.py").is_file())
+        self.assertTrue((self.config / "ovls" / "config.json").is_file())
+        self.assertTrue((self.app / "ovls-nxm").is_file())
+
+    def test_uninstall_with_ovls_uses_full_removal_path(self):
+        self._install()
+
+        with mock.patch.object(
+            package.installer, "uninstall", wraps=installer.uninstall
+        ) as installer_uninstall, \
+             mock.patch.object(
+                 package.shortcuts, "remove", wraps=package.shortcuts.remove
+             ) as shortcuts_remove, \
+             mock.patch.object(
+                 package, "remove_copy", wraps=package.remove_copy
+             ) as remove_copy, \
+             mock.patch.object(
+                 package, "remove_config", wraps=package.remove_config
+             ) as remove_config:
+            result = package.uninstall(prefix=str(self.prefix))
+
+        self.assertEqual(result["status"], "ok")
+        installer_uninstall.assert_called_once()
+        shortcuts_remove.assert_called_once()
+        remove_copy.assert_called_once()
+        remove_config.assert_called_once()
+        self.assertFalse((self.app / "src").exists())
+        self.assertFalse((self.config / "ovls" / "config.json").exists())
+
     def test_manifest_cannot_delete_outside_the_copy(self):
         self._install()
         outside = self.root / "outside"
@@ -415,9 +490,9 @@ class PackageTest(unittest.TestCase):
         self._install()
         core_file = self.package / "src" / "linux-support" / "core.py"
         original = core_file.read_text(encoding="utf-8")
-        self.assertIn('VERSION = "0.2.2"', original)
+        self.assertIn('VERSION = "0.3.0"', original)
         core_file.write_text(
-            original.replace('VERSION = "0.2.2"', 'VERSION = "0.3.0"'),
+            original.replace('VERSION = "0.3.0"', 'VERSION = "0.3.1"'),
             encoding="utf-8",
         )
 
@@ -426,12 +501,12 @@ class PackageTest(unittest.TestCase):
             result = self._install(update=True)
 
         self.assertEqual(result["copy"]["status"], "updated")
-        self.assertEqual((self.app / "VERSION").read_text(encoding="utf-8").strip(), "0.3.0")
+        self.assertEqual((self.app / "VERSION").read_text(encoding="utf-8").strip(), "0.3.1")
         installed_core = (self.app / "src" / "linux-support" / "core.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn('VERSION = "0.3.0"', installed_core)
-        self.assertEqual(updater.current_local_version(), "0.3.0")
+        self.assertIn('VERSION = "0.3.1"', installed_core)
+        self.assertEqual(updater.current_local_version(), "0.3.1")
 
     def test_update_rejects_package_without_readable_staged_version(self):
         self._install()
@@ -444,7 +519,7 @@ class PackageTest(unittest.TestCase):
                 self._install(update=True)
 
         self.assertEqual((self.app / "VERSION").read_text(encoding="utf-8"), original_version)
-        self.assertEqual(updater.current_local_version(), "0.2.2")
+        self.assertEqual(updater.current_local_version(), "0.3.0")
 
     def test_install_fails_when_post_install_verification_fails(self):
         self._install()
@@ -452,7 +527,7 @@ class PackageTest(unittest.TestCase):
         core_file = self.package / "src" / "linux-support" / "core.py"
         core_file.write_text(
             core_file.read_text(encoding="utf-8").replace(
-                'VERSION = "0.2.2"', 'VERSION = "0.3.0"'
+                'VERSION = "0.3.0"', 'VERSION = "0.3.1"'
             ),
             encoding="utf-8",
         )
@@ -460,7 +535,7 @@ class PackageTest(unittest.TestCase):
             "status": "attention_required",
             "version_status": "outdated",
             "version": "0.1.0",
-            "expected_version": "0.3.0",
+            "expected_version": "0.3.1",
             "missing": [],
             "modified": [],
             "unsafe": [],
@@ -481,7 +556,7 @@ class PackageTest(unittest.TestCase):
         self.assertEqual(result["copy"]["status"], "updated")
         self.assertEqual(result["copy"]["changed"], [])
         self.assertEqual(result["copy"]["stale"], [])
-        self.assertEqual((self.app / "VERSION").read_text(encoding="utf-8").strip(), "0.2.2")
+        self.assertEqual((self.app / "VERSION").read_text(encoding="utf-8").strip(), "0.3.0")
         self.assertTrue((self.app / "MANIFEST.sha256").is_file())
 
     def test_repeated_update_of_same_version_is_still_idempotent(self):
@@ -499,7 +574,7 @@ class PackageTest(unittest.TestCase):
         core_file = self.package / "src" / "linux-support" / "core.py"
         core_file.write_text(
             core_file.read_text(encoding="utf-8").replace(
-                'VERSION = "0.2.2"', 'VERSION = "0.3.0"'
+                'VERSION = "0.3.0"', 'VERSION = "0.3.1"'
             ),
             encoding="utf-8",
         )
@@ -510,7 +585,7 @@ class PackageTest(unittest.TestCase):
 
         self.assertEqual((self.app / "VERSION").read_text(encoding="utf-8"), original_version)
         self.assertIn(
-            'VERSION = "0.2.2"',
+            'VERSION = "0.3.0"',
             (self.app / "src" / "linux-support" / "core.py").read_text(encoding="utf-8"),
         )
 
@@ -520,7 +595,7 @@ class PackageTest(unittest.TestCase):
         core_file = self.package / "src" / "linux-support" / "core.py"
         core_file.write_text(
             core_file.read_text(encoding="utf-8").replace(
-                'VERSION = "0.2.2"', 'VERSION = "0.3.0"'
+                'VERSION = "0.3.0"', 'VERSION = "0.3.1"'
             ),
             encoding="utf-8",
         )
@@ -531,7 +606,7 @@ class PackageTest(unittest.TestCase):
 
         self.assertFalse((self.app / "VERSION").exists())
         self.assertIn(
-            'VERSION = "0.2.2"',
+            'VERSION = "0.3.0"',
             (self.app / "src" / "linux-support" / "core.py").read_text(encoding="utf-8"),
         )
 
@@ -541,7 +616,7 @@ class PackageTest(unittest.TestCase):
         core_file = self.package / "src" / "linux-support" / "core.py"
         core_file.write_text(
             core_file.read_text(encoding="utf-8").replace(
-                'VERSION = "0.2.2"', 'VERSION = "0.3.0"'
+                'VERSION = "0.3.0"', 'VERSION = "0.3.1"'
             ),
             encoding="utf-8",
         )
@@ -561,8 +636,8 @@ class PackageTest(unittest.TestCase):
 
         self.assertEqual(state["status"], "ok")
         self.assertEqual(state["version_status"], "ok")
-        self.assertEqual(state["version"], "0.2.2")
-        self.assertEqual(state["expected_version"], "0.2.2")
+        self.assertEqual(state["version"], "0.3.0")
+        self.assertEqual(state["expected_version"], "0.3.0")
 
     def test_manifest_status_rejects_outdated_version(self):
         self._install()
@@ -613,7 +688,7 @@ class PackageTest(unittest.TestCase):
             )
 
         self.assertEqual(result["copy"]["status"], "unchanged")
-        self.assertEqual((self.app / "VERSION").read_text(encoding="utf-8"), "0.2.2\n")
+        self.assertEqual((self.app / "VERSION").read_text(encoding="utf-8"), "0.3.0\n")
         self.assertEqual(package.manifest_status()["status"], "ok")
 
     def test_self_refresh_dry_run_with_stale_version_writes_nothing(self):
@@ -636,7 +711,7 @@ class PackageTest(unittest.TestCase):
         self.assertEqual(result["copy"]["status"], "would_update")
         self.assertEqual(
             result["copy"]["version_repair"],
-            {"current": "0.0.1", "expected": "0.2.2"},
+            {"current": "0.0.1", "expected": "0.3.0"},
         )
 
     def test_failed_chmod_removes_already_copied_file(self):
@@ -665,7 +740,7 @@ class PackageTest(unittest.TestCase):
     def test_manifest_status_rejects_version_symlink_and_update_replaces_it(self):
         self._install()
         target = self.app / "version-target"
-        target.write_text("0.2.2\n", encoding="utf-8")
+        target.write_text("0.3.0\n", encoding="utf-8")
         version = self.app / "VERSION"
         version.unlink()
         version.symlink_to(target)
@@ -677,15 +752,15 @@ class PackageTest(unittest.TestCase):
         self._install(update=True)
 
         self.assertFalse(version.is_symlink())
-        self.assertEqual(version.read_text(encoding="utf-8"), "0.2.2\n")
+        self.assertEqual(version.read_text(encoding="utf-8"), "0.3.0\n")
 
     def test_manifest_status_rejects_conflicting_core_versions(self):
         self._install()
         legacy = self.app / "legacy" / "core.py"
         legacy.parent.mkdir()
-        legacy.write_text('VERSION = "0.3.0"\n', encoding="utf-8")
+        legacy.write_text('VERSION = "0.3.1"\n', encoding="utf-8")
         self._refresh_manifest_digest("legacy/core.py")
-        (self.app / "VERSION").write_text("0.3.0\n", encoding="utf-8")
+        (self.app / "VERSION").write_text("0.3.1\n", encoding="utf-8")
 
         state = package.manifest_status()
 

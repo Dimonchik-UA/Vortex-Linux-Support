@@ -10,7 +10,7 @@ Repository: https://github.com/Dimonchik-UA/Vortex-Linux-Support
 
 OVLS is not Vortex, and it does not change the official Vortex application files or Vortex user settings. It is a separate, installable layer that adds Linux/SteamOS integration around the official Vortex application; it installs and removes its own Extension separately:
 
-- **Vortex launcher** (`ovls-vortex.desktop`): Launches the official Vortex through Proton. OVLS uses the compatibility tool you selected in Steam for the Vortex prefix. When no selection is available, it prefers a recommended tool (DW-Proton or Proton-GE) and otherwise uses another installed Proton. No specific Proton version is required. Proton-GE and DW-Proton Latest did not show window issues in testing; Proton 11.0, Hotfix, and Experimental did. Name: `Vortex`. Comment: `Official Vortex on Linux`. Installed in the applications menu **and** on the desktop. Categories: `Game;`.
+- **Vortex launcher** (`ovls-vortex.desktop`): Launches the official Vortex through Proton. For the selected prefix OVLS first uses the compatibility tool from Steam's `config/config.vdf → CompatToolMapping`; if there is no entry for that appid, it uses the tool recorded in `compatdata/<appid>/config_info` (accepted only when that tool is installed). Only when neither source yields an installed tool does it prefer a recommended tool (DW-Proton or Proton-GE), then any other installed Proton. No specific Proton version is required, and `--proton` overrides the choice. Proton-GE and DW-Proton Latest did not show window issues in testing; Proton 11.0, Hotfix, and Experimental did. Name: `Vortex`. Comment: `Official Vortex on Linux`. Installed in the applications menu **and** on the desktop. Categories: `Game;`.
 - **OVLS Manager** (`ovls-manager.desktop`): Installs or updates the OVLS Extension in the selected Vortex prefix and registers the NXM handler and desktop shortcuts in your user XDG directories; also handles verify, uninstall, and change prefix. Name: `OVLS Manager`. Comment: `OVLS Manager (Official Vortex Linux Support)`. Installed in the applications menu only. Categories: `Utility;`.
 - **NXM handler** (`ovls-nxm.desktop`): Registers the `nxm://` protocol handler so that “Download with Vortex” buttons on Nexus Mods open in the official Vortex running through Proton. Name: `OVLS NXM Handler`. Installed as a hidden protocol-handler entry (`NoDisplay=true`), not shown as a regular application. Categories: `Game;`.
 
@@ -37,23 +37,25 @@ OVLS has been tested on:
 
 - **SteamOS 3.x, Desktop Mode (KDE Plasma)** — supported
 - **SteamOS Game Mode** — not tested
-- **Proton-GE Latest** — normal in testing, recommended (case-insensitive name match: starts with `GE-Proton` or contains `Proton-GE`)
-- **DW-Proton Latest** — normal in testing
+- **DW-Proton Latest** — normal in testing, recommended for use with OVLS
+- **Proton-GE Latest** — normal in testing, recommended for use with OVLS (case-insensitive name match: starts with `GE-Proton` or contains `Proton-GE`)
 - **Proton 11.0** — window display and cursor offset issues observed in testing
 - **Proton Hotfix** — window display and cursor offset issues observed in testing
 - **Proton Experimental** — window display and cursor offset issues observed in testing
 - **Python 3** — required
 - **kdialog or zenity** — required for graphical dialogs; CLI works without them
 
+Both DW-Proton Latest and Proton-GE Latest are recommended for use with OVLS; both worked normally with Vortex in our tests. These are compatibility recommendations, not a preference in automatic selection and not a requirement.
+
 OVLS does not require root access.
 
 ## Project status
 
-OVLS 0.2.1 is published. Further changes are made only for reproducible defects or by explicit user request. Core user flows (launch, Extension install/update, NXM, mod workflow) have been implemented and tested. Optional features such as SD-card staging and frame-extent measurements are not covered.
+A published release is available from [GitHub Releases](https://github.com/Dimonchik-UA/Vortex-Linux-Support/releases); see `CHANGELOG.md` for its version history. The current working tree also contains unreleased changes targeting 0.3.0: prefix detection in additional Steam libraries, a `host.json` v2 volume map for staging, and storage-type detection. The source version is now `0.3.0`; version 0.3.0 is **not published yet** (the latest published release is 0.2.2). Core user flows (launch, Extension install/update, NXM, mod workflow) are implemented and tested. The staging fix for games on an additional library is implemented, but an automatic staging move on a physical SD card has not been verified in a live Vortex session; see [Staging folder](docs/user/staging.md) and [Known limitations](docs/user/limitations.md).
 
 ## Installation
 
-OVLS is distributed as a standalone installer folder (`OVLS Installer`). Download the built package, copy it to any location, and run `install.sh`. Detailed installation instructions are included in the package itself (`installer/README.md`).
+OVLS is distributed as a standalone installer folder (`OVLS Installer`). Download the built package, copy it to any location, and run `install.sh`. Detailed installation instructions are included in the package itself ([installer/README.md](installer/README.md)).
 
 Do not run the installer from inside the source checkout unless you are developing OVLS. The standalone package is the supported distribution format.
 
@@ -78,20 +80,21 @@ Do not run the installer from inside the source checkout unless you are developi
 
 ## Documentation
 
-- **User documentation**: `docs/user/` — installation, usage, NXM, staging, environment matrix, diagnostics.
-- **Developer documentation**: `docs/developer/` — architecture, component design, IPC contract, error handling, lifecycle.
+- **User documentation**: [Installation](docs/user/installation.md), [Usage](docs/user/usage.md), [NXM integration](docs/user/nxm.md), [Staging folder](docs/user/staging.md), [Supported environment](docs/user/environment.md), [Diagnostics](docs/user/diagnostics.md), [Known limitations](docs/user/limitations.md).
+- **Developer documentation**: [Architecture](docs/developer/architecture.md), [Component design](docs/developer/component-design.md), [IPC contract](docs/developer/ipc-contract.md), [Error handling](docs/developer/error-handling.md), [Lifecycle](docs/developer/lifecycle.md).
+- **GitHub sections**: [Releases](https://github.com/Dimonchik-UA/Vortex-Linux-Support/releases), [Issues](https://github.com/Dimonchik-UA/Vortex-Linux-Support/issues), [package README](installer/README.md).
 
 ## Known limitations
 
 - OVLS does not guarantee compatibility with all games or all versions of Vortex.
-- Mod deployment requires the staging folder to be on the same Wine disk as the game (e.g. `Z:` under Proton).
-- Staging on SD cards and other non-home roots is not supported automatically.
+- Mod deployment requires staging and the game to be on the same filesystem volume; under Proton matching Wine drive letters (`Z:`) are not sufficient.
+- OVLS can generate staging targets for games in additional Steam libraries (`host.json` v2), but an automatic staging move on a physical SD card has not been verified on SteamOS. Details: [Staging folder](docs/user/staging.md), [Known limitations](docs/user/limitations.md).
 - Game Mode has not been tested.
 - OVLS does not modify the official Vortex executable or Vortex user settings; it installs its own Extension into Vortex's plugin directory and removes it on uninstall. OVLS cannot guarantee behavior with future versions of Vortex internals.
 
-## Input limitations on Steam Deck
+## Input limitations in SteamOS Desktop Mode (KDE Plasma)
 
-On Steam Deck in Desktop Mode (KDE Plasma), the following input limitations have been observed:
+In SteamOS Desktop Mode (KDE Plasma), the following input limitations have been observed:
 
 | Category | Observation |
 |----------|-------------|

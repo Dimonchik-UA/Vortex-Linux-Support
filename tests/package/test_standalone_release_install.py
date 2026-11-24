@@ -419,7 +419,7 @@ class StandaloneUpdaterFlowTest(unittest.TestCase):
         self.assertFalse(temp_root.exists(), "prepared.cleanup() must remove temp dir")
 
     def test_version_after_fresh_install_comes_from_prepared_package(self):
-        """AUDIT-001: prepared package 0.3.0 -> fresh install VERSION 0.3.0."""
+        """AUDIT-001: prepared package 0.3.1 -> fresh install VERSION 0.3.1."""
         temp_root = self.root / "version-updtmp"
         temp_root.mkdir()
         extract_dir = temp_root / "extract"
@@ -429,17 +429,17 @@ class StandaloneUpdaterFlowTest(unittest.TestCase):
 
         core_file = pkg_root / "ovls" / "core.py"
         core_text = core_file.read_text(encoding="utf-8")
-        self.assertIn('VERSION = "0.2.2"', core_text)
+        self.assertIn('VERSION = "0.3.0"', core_text)
         core_file.write_text(
-            core_text.replace('VERSION = "0.2.2"', 'VERSION = "0.3.0"'),
+            core_text.replace('VERSION = "0.3.0"', 'VERSION = "0.3.1"'),
             encoding="utf-8",
         )
-        updater.validate_package_root(pkg_root, expected_version="0.3.0")
+        updater.validate_package_root(pkg_root, expected_version="0.3.1")
 
         prepared = updater.PreparedRelease(
             package_root=pkg_root,
-            version="0.3.0",
-            tag_name="v0.3.0",
+            version="0.3.1",
+            tag_name="v0.3.1",
             temp_dir=temp_root,
             archive_path=self.archive,
             checksums_path=self.sums,
@@ -452,15 +452,15 @@ class StandaloneUpdaterFlowTest(unittest.TestCase):
             )
             self.assertEqual(result["status"], "ok", result)
             self.assertEqual(
-                (self.app / "VERSION").read_text(encoding="utf-8").strip(), "0.3.0"
+                (self.app / "VERSION").read_text(encoding="utf-8").strip(), "0.3.1"
             )
-            self.assertEqual(updater.current_local_version(), "0.3.0")
+            self.assertEqual(updater.current_local_version(), "0.3.1")
             state = package.manifest_status()
             self.assertEqual(state["status"], "ok", state)
-            self.assertEqual(state["expected_version"], "0.3.0")
+            self.assertEqual(state["expected_version"], "0.3.1")
             self.assertEqual(state["version_status"], "ok")
             self.assertIn(
-                'VERSION = "0.3.0"',
+                'VERSION = "0.3.1"',
                 (self.app / "ovls" / "core.py").read_text(encoding="utf-8"),
             )
         finally:

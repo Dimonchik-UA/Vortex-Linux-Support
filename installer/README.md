@@ -30,7 +30,7 @@ The OVLS Manager appears in the `Utility;` category of your application menu.
 - SteamOS 3.x, Desktop Mode (KDE Plasma)
 - Steam installed
 - Official Vortex installed in a Proton prefix
-- **DW-Proton or Proton-GE** (including "latest" builds) — recommended, not required (GE-Proton: case-insensitive name starting with `GE-Proton` or containing `Proton-GE`)
+- **DW-Proton Latest and Proton-GE Latest** — both recommended for use with OVLS, not required (case-insensitive GE-Proton name match: starts with `GE-Proton` or contains `Proton-GE`); both worked normally with Vortex in our tests
 - **Any other installed Proton** — works; OVLS honours the tool selected in Steam
 - Python 3
 - `kdialog` or `zenity` (for graphical dialogs; CLI works without them)
@@ -41,7 +41,7 @@ The OVLS Manager appears in the `Utility;` category of your application menu.
 2. Make sure the prefix is writable.
 3. Close Vortex before installing. The installer will refuse to proceed if Vortex is running.
 
-Install searches for real Vortex installations: the saved prefix, the legacy location `~/Windows/prefix`, and any `<Steam root>/steamapps/compatdata/<appid>` containing `Vortex.exe`. One match is used automatically; several matches show a list to choose from; if none is found, the graphical installer opens a directory chooser and validates the folder you pick. You can always pass `--prefix /path/to/compatdata` explicitly. `Change prefix` in the Manager is separate and always opens the chooser.
+Install searches for real Vortex installations: the saved prefix, the legacy location `~/Windows/prefix`, and every `<Steam root>/steamapps/compatdata/<appid>` that actually contains `Vortex.exe`, including roots in additional Steam libraries that are present and mounted. One match is used automatically; several matches show a list to choose from; if none is found, the graphical installer opens a directory chooser and validates the folder you pick. You can always pass `--prefix /path/to/compatdata` explicitly. `Change prefix` in the Manager is separate and always opens the chooser.
 
 ## Installation
 
@@ -59,7 +59,7 @@ Install searches for real Vortex installations: the saved prefix, the legacy loc
 
 After installation, Vortex is available from the desktop and application menu. The OVLS Manager is also available from the application menu.
 
-OVLS launches Vortex through the Proton tool selected in Steam for the prefix. If Steam has no selection, it prefers DW-Proton or Proton-GE, then any other installed Proton version. No specific version is required and you do not need to pass `--proton` manually.
+OVLS launches Vortex through the Proton tool resolved for the prefix: the explicit Steam selection in `config/config.vdf → CompatToolMapping`, then the tool recorded in `compatdata/<appid>/config_info` when there is no mapping entry (only if that tool is installed). Only when neither source gives an installed Proton does it prefer DW-Proton or Proton-GE, then any other installed Proton. No specific version is required and you do not need to pass `--proton` manually.
 
 ## Update
 
@@ -87,7 +87,8 @@ This checks the installed copy, extension, NXM handler, and shortcuts.
 1. Run `install.sh` and choose **Uninstall**.
    Or use the OVLS Manager from the application menu.
 2. Uninstall removes only OVLS-owned files: the installed copy, shortcuts, the NXM handler, and the OVLS Extension (`info.json`, `index.js`, `host.json`) from the Vortex plugin directory.
-3. The following are **not** removed:
+3. If the selected prefix contains Vortex but no OVLS Extension, uninstall is blocked and all OVLS components are kept.
+4. The following are **not** removed:
    - Vortex and its prefix
    - Games, mods, and staging folders
    - User settings
@@ -102,13 +103,12 @@ This checks the installed copy, extension, NXM handler, and shortcuts.
 ## Known limitations
 
 - OVLS does not modify the official Vortex executable or settings; it installs its own Extension into Vortex's plugin directory. OVLS cannot guarantee compatibility with future versions of Vortex internals.
-- Mod deployment requires the staging folder to be on the same Wine disk as the game (e.g. `Z:` under Proton).
-- Staging on SD cards and other non-home roots is not supported automatically.
+- Mod deployment requires the staging folder to be on the same filesystem volume as the game; matching Wine drive letters (`Z:`) are not sufficient. OVLS can offer a staging target from `host.json` v2 for additional Steam libraries, but the automatic move on a physical SD card still needs verification on SteamOS.
 - SteamOS Game Mode has not been tested. R2/L2 triggers work via SteamOS input handling; other controller interactions with Vortex UI elements have not been fully tested.
 
-## Input limitations on Steam Deck
+## Input limitations in SteamOS Desktop Mode (KDE Plasma)
 
-On Steam Deck in Desktop Mode (KDE Plasma), the following input limitations have been observed:
+In SteamOS Desktop Mode (KDE Plasma), the following input limitations have been observed:
 
 | Category | Observation |
 |----------|-------------|

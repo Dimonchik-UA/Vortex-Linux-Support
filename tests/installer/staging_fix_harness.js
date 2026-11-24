@@ -20,11 +20,32 @@ const GAME_PATH = 'Z:\\home\\deck\\.local\\share\\Steam\\steamapps\\common\\Cybe
 const STAGING_PATH = 'C:\\users\\steamuser\\AppData\\Roaming\\Vortex\\cyberpunk2077\\mods';
 const DEPLOY_FAILURE = 'test-valid-activator';
 const NOTIFICATION_ID = 'ovls-staging-fix';
+const SD_ANCHOR = 'Z:\\run\\media\\deck\\SD';
+const SD_MODS_ROOT = SD_ANCHOR + '\\Vortex Mods';
+const SD_GAME_PATH = SD_ANCHOR + '\\SteamLibrary\\steamapps\\common\\Cyberpunk 2077';
+const HOME_STAGING = MODS_ROOT + '\\other-game\\mods';
 
 function makeHostFile(dir, modsRoot, name) {
   const file = path.join(dir, name || 'host.json');
   fs.writeFileSync(file, JSON.stringify({ modsRoot: modsRoot }), 'utf8');
   return file;
+}
+
+function makeV2HostFile(dir, modsRoot, volumes, name) {
+  const file = path.join(dir, name || 'host-v2.json');
+  fs.writeFileSync(file, JSON.stringify({ modsRoot: modsRoot, volumes: volumes }), 'utf8');
+  return file;
+}
+
+// Mode used by the Python generator tests: feed a real generated host.json to
+// the Extension reader and require the SD-volume target.
+function checkGeneratedHostFile(hostFile) {
+  const state = makeState({ gamePath: SD_GAME_PATH, stagingPath: HOME_STAGING });
+  const info = internals.evaluateStagingFix(makeContext(state).context, hostFile);
+  if (!info || info.target !== SD_MODS_ROOT + '\\cyberpunk2077') {
+    throw new Error('generated host.json was not consumed as expected: ' + JSON.stringify(info));
+  }
+  console.log('CROSS_HOST_OK');
 }
 
 // Mirrors Vortex 2.10.1: the active game comes from the active profile, and
@@ -272,13 +293,161 @@ async function main() {
     internals.maybeOfferStagingFix(harness.context, hostFile);
     assert.ok(harness.dismissed.indexOf(NOTIFICATION_ID) !== -1);
 
+    // ---- host.json v2: volume anchors from real Steam libraries ----
+    const homeVolume = { anchor: 'Z:\\home\\deck', modsRoot: MODS_ROOT };
+    const sdVolume = { anchor: SD_ANCHOR, modsRoot: SD_MODS_ROOT };
+    const v2Host = makeV2HostFile(tmp, MODS_ROOT, [homeVolume, sdVolume], 'host-v2.json');
+
+    // 1. Internal game + C: staging: previous behaviour is preserved.
+    internals.resetOfferedStagingFixes();
+    state = makeState();
+    info = internals.evaluateStagingFix(makeContext(state).context, v2Host);
+    assert.ok(info, 'internal game with C: staging must still be offered');
+    assert.strictEqual(info.target, MODS_ROOT + '\\cyberpunk2077');
+
+    // 2. SD game + staging in home: fix target is on the SD volume.
+    state = makeState({ gamePath: SD_GAME_PATH, stagingPath: HOME_STAGING });
+    info = internals.evaluateStagingFix(makeContext(state).context, v2Host);
+    assert.ok(info, 'SD game with home staging must be offered');
+    assert.strictEqual(info.target, SD_MODS_ROOT + '\\cyberpunk2077');
+
+    // The notification must carry the SD target too, not just evaluateStagingFix.
+    internals.resetOfferedStagingFixes();
+    harness = makeContext(makeState({
+      notifications: [{ id: DEPLOY_FAILURE }],
+      gamePath: SD_GAME_PATH,
+      stagingPath: HOME_STAGING
+    }));
+    internals.maybeOfferStagingFix(harness.context, v2Host);
+    assert.strictEqual(harness.sent.length, 1, 'v2 SD fix must be offered');
+    assert.ok(harness.sent[0].message.indexOf(SD_MODS_ROOT + '\\cyberpunk2077') !== -1);
+
+    // The dispatched setting must use the volume target, not the v1 modsRoot.
+    harness = makeContext(makeState({ gamePath: SD_GAME_PATH, stagingPath: HOME_STAGING }));
+    const sdOffer = internals.evaluateStagingFix(harness.context, v2Host);
+    const sdIo = makeFakeFs();
+    internals.applyStagingFix(harness.context, sdOffer, sdIo);
+    assert.deepStrictEqual(harness.dispatched[0], {
+      type: 'SET_MOD_INSTALL_PATH',
+      payload: { gameId: 'cyberpunk2077', path: SD_MODS_ROOT + '\\cyberpunk2077' }
+    });
+    assert.deepStrictEqual(sdIo.dirs, [SD_MODS_ROOT + '\\cyberpunk2077']);
+
+    // 3. SD game + staging already under the SD anchor: no fix.
+    state = makeState({
+      gamePath: SD_GAME_PATH,
+      stagingPath: SD_MODS_ROOT + '\\cyberpunk2077'
+    });
+    assert.strictEqual(
+      internals.evaluateStagingFix(makeContext(state).context, v2Host), null,
+      'staging on the game volume must not be offered'
+    );
+
+    // 4. host.json v1 without volumes: original drive comparison stays intact.
+    state = makeState();
+    info = internals.evaluateStagingFix(makeContext(state).context, hostFile);
+    assert.ok(info, 'v1 must still offer the internal-game fix');
+    assert.strictEqual(info.target, MODS_ROOT + '\\cyberpunk2077');
+    state = makeState({ stagingPath: 'Z:\\home\\deck\\Other Staging' });
+    assert.strictEqual(
+      internals.evaluateStagingFix(makeContext(state).context, hostFile), null,
+      'v1 must stay passive for the same drive'
+    );
+
+    // 5. Unknown volume and invalid volume maps leave the extension passive.
+    const homeOnly = makeV2HostFile(tmp, MODS_ROOT, [homeVolume], 'host-home-only.json');
+    const emptyVolumes = makeV2HostFile(tmp, MODS_ROOT, [], 'host-empty-volumes.json');
+    const brokenVolumes = makeV2HostFile(
+      tmp, MODS_ROOT, [{ anchor: 'relative\\path', modsRoot: MODS_ROOT }],
+      'host-broken-volumes.json'
+    );
+    const nonArrayVolumes = makeV2HostFile(
+      tmp, MODS_ROOT, { anchor: SD_ANCHOR, modsRoot: SD_MODS_ROOT },
+      'host-nonarray-volumes.json'
+    );
+    const missingAnchor = makeV2HostFile(
+      tmp, MODS_ROOT, [{ modsRoot: SD_MODS_ROOT }], 'host-missing-anchor.json'
+    );
+    const missingModsRoot = makeV2HostFile(
+      tmp, MODS_ROOT, [{ anchor: SD_ANCHOR }], 'host-missing-modsroot.json'
+    );
+    const invalidJson = path.join(tmp, 'host-invalid.json');
+    fs.writeFileSync(invalidJson, '{not json', 'utf8');
+    state = makeState({ gamePath: SD_GAME_PATH, stagingPath: HOME_STAGING });
+    assert.strictEqual(
+      internals.evaluateStagingFix(makeContext(state).context, homeOnly), null,
+      'unknown volume must stay passive'
+    );
+    [emptyVolumes, brokenVolumes, nonArrayVolumes, missingAnchor, missingModsRoot, invalidJson].forEach(function (file) {
+      const result = internals.evaluateStagingFix(makeContext(state).context, file);
+      assert.ok(result && result.target === null, 'invalid volumes must stay passive');
+      assert.strictEqual(result.reason, 'invalid host.json', 'invalid map must be the reported reason');
+      internals.resetOfferedStagingFixes();
+      const passive = makeContext(makeState({ notifications: [{ id: DEPLOY_FAILURE }] }));
+      internals.maybeOfferStagingFix(passive.context, file);
+      assert.strictEqual(passive.sent.length, 0, 'invalid volumes must not show a fix');
+    });
+
+    // A corrupt map must not be reported as "same drive" when both paths
+    // happen to be on Z: (the old v1 comparison ran before the host check).
+    [emptyVolumes, invalidJson].forEach(function (file) {
+      const sameDrive = makeState({ stagingPath: 'Z:\\home\\deck\\Other Staging' });
+      const result = internals.evaluateStagingFix(makeContext(sameDrive).context, file);
+      assert.ok(result && result.target === null, 'same-drive invalid map must stay passive');
+      assert.strictEqual(result.reason, 'invalid host.json');
+      internals.resetOfferedStagingFixes();
+    });
+
+    // Two libraries on different volumes: the matching one is selected.
+    assert.deepStrictEqual(
+      internals.volumeForPath([homeVolume, sdVolume], SD_GAME_PATH),
+      { anchor: SD_ANCHOR.toLowerCase(), modsRoot: SD_MODS_ROOT }
+    );
+    assert.deepStrictEqual(
+      internals.volumeForPath([homeVolume, sdVolume], GAME_PATH),
+      { anchor: 'z:\\home\\deck', modsRoot: MODS_ROOT }
+    );
+
+    // The longest matching anchor wins.
+    const nestedVolumes = [
+      { anchor: 'Z:\\home', modsRoot: 'Z:\\home\\Vortex Mods' },
+      { anchor: 'Z:\\home\\deck', modsRoot: MODS_ROOT }
+    ];
+    assert.strictEqual(internals.volumeForPath(nestedVolumes, GAME_PATH).modsRoot, MODS_ROOT);
+
+    // Partial directory-name matches are not anchor matches.
+    assert.strictEqual(
+      internals.volumeForPath([sdVolume], 'Z:\\run\\media\\deck\\SDCard\\steamapps\\common\\Game'),
+      null
+    );
+    assert.strictEqual(
+      internals.pathUnderAnchor(
+        internals.normalizedWindowsPath('z:\\run\\media\\deck\\sdcard'),
+        internals.normalizedWindowsPath(SD_ANCHOR)
+      ), false
+    );
+
     console.log('STAGING_FIX_HARNESS_OK');
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 }
 
-main().catch(function (error) {
-  console.error('STAGING_FIX_HARNESS_FAILED: ' + (error && error.stack ? error.stack : error));
-  process.exit(1);
-});
+const args = process.argv.slice(2);
+if (args[0] === '--host') {
+  if (!args[1]) {
+    console.error('STAGING_FIX_HARNESS_FAILED: missing host file');
+    process.exit(1);
+  }
+  try {
+    checkGeneratedHostFile(args[1]);
+  } catch (error) {
+    console.error('STAGING_FIX_HARNESS_FAILED: ' + (error && error.stack ? error.stack : error));
+    process.exit(1);
+  }
+} else {
+  main().catch(function (error) {
+    console.error('STAGING_FIX_HARNESS_FAILED: ' + (error && error.stack ? error.stack : error));
+    process.exit(1);
+  });
+}

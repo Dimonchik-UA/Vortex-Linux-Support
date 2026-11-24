@@ -23,7 +23,7 @@ Desktop integration for the NXM handler: creates the NXM handler wrapper (`ovls-
 System diagnostics: collects Proton version, prefix state, Steam library information, filesystem checks.
 
 ### `extension_installer.py`
-Installs and removes the Vortex Extension (`info.json`, `index.js`) into the Proton prefix plugin directory. Also generates `host.json` describing the host mods directory for staging folder detection.
+Installs and removes the Vortex Extension (`info.json`, `index.js`) into the Proton prefix plugin directory. Also generates `host.json` with the host mods directory (`modsRoot`) and, in v2, volume anchors from the real Steam libraries for staging folder detection.
 
 ### `filesystem.py`
 Filesystem checks: case sensitivity, hardlink support, accessibility, free space.
@@ -50,7 +50,7 @@ Command-line entry point: subcommands for status, discover, inspect-prefix, laun
 Autonomous package management: stages and verifies the new source tree, backs up managed files and restores them on failure, manages MANIFEST.sha256, handles transactional install/update/verify/uninstall, and calls `installer.py` for components inside the prefix.
 
 ### `proton.py`
-Proton discovery and launch: finds Proton installations, honours the tool selected in Steam for the prefix (read from `config.vdf` `CompatToolMapping`), otherwise prefers a recommended tool (DW-Proton / Proton-GE), then any available Proton; launches Vortex through Proton. No specific version is required.
+Proton discovery and launch: finds installed Proton tools, resolves the prefix tool from Steam's `config.vdf` `CompatToolMapping` first, then from the tool recorded in `compatdata/<appid>/config_info` when the mapping entry is missing (used only if installed); the recommended-tool fallback (DW-Proton / Proton-GE, then any available Proton) applies only when neither source yields an installed tool. Never edits the Steam selection; no specific version is required.
 
 ### `registry.py`
 Windows registry operations for Proton prefix: creates/repairs uninstall keys.
@@ -115,4 +115,4 @@ OVLS Installer/
 
 The installed copy (`~/.local/share/ovls/`) mirrors this layout plus `MANIFEST.sha256`, `VERSION`, and `backups/`.
 
-**Note**: `host.json` is generated on install and describes the host mods directory for staging folder detection. It is removed with the Extension on uninstall.
+**Note**: `host.json` is generated on install and describes the host mods directory for staging folder detection. In v2 it also contains deterministic `volumes` entries (`anchor` and per-volume `modsRoot`) derived from `libraryfolders.vdf` and the real filesystem mount point from `findmnt -T ... -no TARGET`. A library under PASSWD-home shares the home anchor only when both report the same mount; otherwise its own mount root is used. Mounts that cannot be determined or mapped through the prefix `z:` drive are skipped. Install and verify pass the currently installed `host.json` back to the generator so a still-registered but temporarily unavailable library keeps its known volume; real registration changes still change the bytes. It is removed with the Extension on uninstall.

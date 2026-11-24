@@ -4,7 +4,7 @@
 The project tree is the source of the installer, but it cannot be shipped as
 is: it also contains research, tests, reports and the graph.  This tool copies
 exactly the files the installer itself installs (``package._iter_sources``)
-plus the ``OVLS Installer.desktop`` launcher into one folder that can be moved
+plus the desktop launchers from ``installer/`` into one folder that can be moved
 anywhere — to ``~/Downloads``, to a USB stick, to another machine — and run
 without the working project directory.
 
@@ -13,6 +13,7 @@ The package layout is the readable one, not the project one::
   OVLS Installer/
   ├── install.sh
   ├── OVLS Installer.desktop
+  ├── OVLS - GitHub Repository.desktop
   ├── README.md
   └── ovls/
       ├── *.py
@@ -48,6 +49,7 @@ import layout  # noqa: E402
 import package  # noqa: E402
 
 DESKTOP_NAME = "OVLS Installer.desktop"
+REPO_DESKTOP_NAME = "OVLS - GitHub Repository.desktop"
 DEFAULT_OUT = PROJECT / "dist" / "OVLS Installer"
 MARKER = ".ovls-build"
 
@@ -106,10 +108,11 @@ def _sources():
             else:
                 target = relative
         pairs.append((target, source))
-    desktop = PROJECT / "installer" / DESKTOP_NAME
-    if not desktop.is_file():
-        raise SystemExit(f"ERROR: {DESKTOP_NAME} not found in {PROJECT / 'installer'}")
-    pairs.append((Path(DESKTOP_NAME), desktop))
+    for name in (DESKTOP_NAME, REPO_DESKTOP_NAME):
+        source = PROJECT / "installer" / name
+        if not source.is_file():
+            raise SystemExit(f"ERROR: {name} not found in {PROJECT / 'installer'}")
+        pairs.append((Path(name), source))
     return sorted(pairs)
 
 

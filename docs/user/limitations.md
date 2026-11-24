@@ -16,9 +16,9 @@ SteamOS Game Mode has not been tested by OVLS. The results described in this doc
 
 ## Staging folder restrictions
 
-Mod deployment requires the staging folder to be on the same Wine disk (drive letter) as the game installation. For example, if your game is installed on `Z:`, your staging folder must also be on `Z:`. OVLS offers to move the staging folder when Vortex reports deployment problems, but it does not automatically move an existing non-empty staging folder.
+Mod deployment requires the staging folder to be on the same filesystem volume as the game installation. Under Proton `Z:` maps to `/`, matching drive letters do not prove that home and an SD card are the same volume. OVLS offers to move the staging folder when Vortex reports deployment problems, but it does not automatically move an existing non-empty staging folder.
 
-Staging on SD cards and other non-home roots is not supported automatically.
+With `host.json` v2, staging targets for additional Steam libraries are generated from `libraryfolders.vdf` and the filesystem mount point reported by Linux `findmnt`; the Extension uses the longest matching volume anchor and stays passive when the map is invalid or the volume is unknown. A temporarily unmounted library does not create a false `verify` drift while its registration remains, but a newly added library that is unavailable cannot get a volume until its filesystem is mounted. An automatic staging move on a real SD card still needs verification on SteamOS.
 
 ## OVLS is not Vortex
 
@@ -44,13 +44,13 @@ Some advanced mod management features may not be available through the extension
 The following results were observed during testing in SteamOS Desktop Mode (KDE Plasma):
 
 - **Proton 11.0, Proton Hotfix, Proton Experimental**: KDE Plasma displays its window control buttons; Vortex additionally displays its Windows-style window buttons (both present simultaneously, Vortex buttons mostly hidden under the white band). White band at top, interface shifted down, cursor-click coordinate mismatch. These issues could not be resolved in testing.
-- **Proton-GE Latest, DW-Proton Latest**: No such issues were observed in the same tests.
+- **Proton-GE Latest, DW-Proton Latest** (both recommended for use with OVLS): No such issues were observed in the same tests.
 
 The cause of these differences has not been determined. The results should not be assumed to apply to all systems or all configurations. Other Proton versions may work but have not been tested. Report issues if you encounter them.
 
-## Input limitations on Steam Deck
+## Input limitations in SteamOS Desktop Mode (KDE Plasma)
 
-The following input issues were observed when running Vortex through Proton on Steam Deck in Desktop Mode (KDE Plasma). They are separate from the window rendering issues described above and may have different causes.
+The following input issues were observed when running Vortex through Proton in SteamOS Desktop Mode (KDE Plasma). They are separate from the window rendering issues described above and may have different causes.
 
 ### A. Window rendering and mouse coordinates
 
