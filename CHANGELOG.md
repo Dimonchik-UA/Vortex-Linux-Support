@@ -4,11 +4,11 @@ This file records user-facing changes to OVLS. The newest version is listed firs
 
 ## 0.3.0
 
-Extends Vortex prefix discovery to all registered Steam libraries and prepares staging for games installed outside the home filesystem. Version 0.3.0 is prepared in the working tree and is **not published yet**.
+Extends Vortex prefix discovery to all registered Steam libraries and prepares staging for games installed outside the home filesystem.
 
 ### Added
 
-- Discovery of Vortex prefixes in every registered Steam library, not only the main Steam root. Libraries that are absent or unmounted are skipped instead of causing errors.
+- Discovery of Vortex prefixes in every registered Steam library, not only the main Steam root. Libraries that are no longer registered are removed from the volume map. Temporarily unavailable libraries that remain registered reuse their saved volume mapping.
 - Storage-type labels in the prefix list: `Internal storage`, `SD card`, and `Storage type unknown`. The label is derived from filesystem and device attributes, not from the directory name.
 - `host.json` v2 with a volume map built from real filesystem mount points reported by `findmnt`. Games on different filesystems receive separate `modsRoot` values, and the Extension picks the most specific matching volume for staging.
 - A safety guard in Uninstall: if the selected prefix contains Vortex but no OVLS Extension, the operation is blocked and the installed copy, shortcuts, NXM handler and settings are kept.
