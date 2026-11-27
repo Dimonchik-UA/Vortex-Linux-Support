@@ -75,46 +75,6 @@ def find_vortex_prefixes(steam_root=None):
     return sorted(found)
 
 
-def prefix_library(prefix, steam_root=None):
-    """Return the Steam library root containing ``prefix``, if it is known.
-
-    The result is derived from ``read_library_folders()``; arbitrary directories
-    outside registered Steam libraries are not accepted.
-    """
-    if not prefix:
-        return None
-    root = steam_root or find_steam_root()
-    if not root:
-        return None
-    try:
-        prefix_path = Path(prefix).expanduser().resolve()
-    except (OSError, RuntimeError, ValueError):
-        return None
-    try:
-        root_path = Path(root).expanduser().resolve()
-    except (OSError, RuntimeError, ValueError):
-        root_path = Path(root).expanduser()
-
-    for library in read_library_folders(root_path):
-        try:
-            library_path = Path(library).expanduser()
-            try:
-                library_path = library_path.resolve()
-            except OSError:
-                pass
-            if not library_path.is_dir():
-                continue
-            compatdata = library_path / "steamapps" / "compatdata"
-            try:
-                prefix_path.relative_to(compatdata)
-            except ValueError:
-                continue
-            return library_path
-        except (OSError, RuntimeError, TypeError, ValueError):
-            continue
-    return None
-
-
 _STORAGE_SD = "SD card"
 _STORAGE_INTERNAL = "Internal storage"
 _STORAGE_UNKNOWN = "Storage type unknown"

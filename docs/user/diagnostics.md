@@ -43,7 +43,7 @@ If any check fails, OVLS Manager will show an error message explaining what is w
 | `invalid_host_file` | `host.json` is a directory or symlink instead of a regular file. | Remove or rename that object yourself after inspecting it. OVLS will not replace or delete it, and uninstall will skip it. |
 | `host_map_unrepairable` | The installed v2 `volumes` map is damaged and cannot be rebuilt safely. A valid v2 map is preserved unchanged when Steam libraries are temporarily unavailable. | Repair or restore the Steam library registration, then verify again. OVLS will not downgrade the file to v1 or destroy the damage information. |
 
-A valid v1 `host.json` (only `modsRoot`) is still supported and stays byte-for-byte unchanged. Structural damage to a v2 map is counted even when `z:` is missing, although `stale_host` remains the reported status in that case.
+A valid v1 `host.json` (only `modsRoot`) is still supported. Install / Update may upgrade it to v2 when additional Steam libraries are registered, and may rewrite it in canonical form even when no v2 map is generated, so byte-for-byte preservation is not guaranteed for v1. Byte-for-byte preservation applies to a fully valid v2 map when the Steam root is temporarily unavailable. Structural damage to a v2 map is counted even when `z:` is missing, although `stale_host` remains the reported status in that case.
 
 ## Diagnostic logs
 
@@ -52,8 +52,11 @@ OVLS writes logs to the following locations:
 | Log | Location | What it contains |
 |-----|----------|------------------|
 | Vortex log | `<prefix>/pfx/drive_c/users/<user>/AppData/Roaming/Vortex/vortex.log` | Vortex application log; OVLS extension lines start with `OVLS9` |
-| OVLS launch log | `$XDG_STATE_HOME/ovls/launch.log` (typically `~/.local/state/ovls/launch.log`) | Launch attempts and Proton startup |
-| OVLS package log | `~/.local/share/ovls/ovls/ovls.log` | OVLS package manager operations |
+| OVLS launch log | `$XDG_STATE_HOME/ovls/launch.log` (typically `~/.local/state/ovls/launch.log`) | Vortex launch and Proton output |
+| OVLS NXM log | `$XDG_DATA_HOME/ovls/nxm.log` (typically `~/.local/share/ovls/nxm.log`) | Vortex output for `nxm://` links |
+| OVLS package log | `~/.local/share/ovls/ovls/ovls.log` | OVLS package manager log (currently no records) |
+
+The OVLS launch and NXM logs are limited to 1 MB each, with two rotated copies (`launch.log.1`, `launch.log.2`, and the same for `nxm.log`). Older output is discarded automatically. Uninstall removes all OVLS logs and their rotated copies.
 
 ## Common problems and solutions
 

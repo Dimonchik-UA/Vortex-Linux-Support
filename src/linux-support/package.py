@@ -40,15 +40,16 @@ import desktop
 import extension_installer
 import installer
 import layout
+import proton
 import shortcuts
 import steam
+import tempfiles
 
 APP_DIR = Path("ovls")
 SUPPORT_TREE = layout.CODE_TREE
 EXTENSION_TREE = layout.EXTENSION_TREE
 ENTRY_SCRIPT = "install.sh"
 README_NAME = "README.md"
-ICON_NAME = "ovls.png"
 ICON_DIRNAME = "assets"
 MANIFEST_NAME = "MANIFEST.sha256"
 VERSION_NAME = "VERSION"
@@ -73,7 +74,7 @@ def backups_root():
     return app_root() / BACKUP_DIRNAME
 
 
-def _cleanup_old_backups():
+def _cleanup_old_backups(root=None):
     """Remove oldest OVLS backup snapshots beyond MAX_BACKUP_COUNT.
 
     Only directories whose names match the _stamp() format
@@ -84,7 +85,7 @@ def _cleanup_old_backups():
     chronological order for the timestamp format). The newest
     MAX_BACKUP_COUNT directories are kept; the rest are removed.
     """
-    root = backups_root()
+    root = Path(root) if root is not None else backups_root()
     if not root.is_dir():
         return
     try:
@@ -102,6 +103,16 @@ def _cleanup_old_backups():
         return
     for old_dir in dirs[MAX_BACKUP_COUNT:]:
         shutil.rmtree(old_dir, ignore_errors=True)
+
+
+def _cleanup_orphaned_staging_dirs(root=None):
+    """Remove staging directories only when their tagged owner process is gone.
+
+    Only directories matching the exact .ovls-stage-<pid>-<random> pattern are
+    considered; untagged or active directories are left untouched.
+    """
+    root = Path(root) if root is not None else (app_root().parent)
+    tempfiles.cleanup_orphaned_dirs(root, ".ovls-stage-")
 
 
 def config_path():
@@ -234,8 +245,10 @@ def _sha256(path):
 
 def _write_text(path, text, mode=0o644):
     path.parent.mkdir(parents=True, exist_ok=True)
+    temp_prefix = f".{path.name}-{os.getpid()}-"
+    tempfiles.cleanup_orphaned_files(path.parent, f".{path.name}-")
     descriptor, temp_path = tempfile.mkstemp(
-        prefix=f".{path.name}-", suffix=".tmp", dir=str(path.parent)
+        prefix=temp_prefix, suffix=".tmp", dir=str(path.parent)
     )
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
@@ -258,8 +271,10 @@ def _copy_file(source, destination):
     """Copy one file atomically inside the destination directory."""
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
+    temp_prefix = f".{destination.name}-{os.getpid()}-"
+    tempfiles.cleanup_orphaned_files(destination.parent, f".{destination.name}-")
     descriptor, temp_path = tempfile.mkstemp(
-        prefix=f".{destination.name}-", suffix=".tmp", dir=str(destination.parent)
+        prefix=temp_prefix, suffix=".tmp", dir=str(destination.parent)
     )
     os.close(descriptor)
     try:
@@ -471,33 +486,23 @@ def _safe_target(root, relative):
     rel = Path(relative)
     if rel.is_absolute() or not rel.parts or any(part == ".." for part in rel.parts):
         return None
-    # Use realpath to resolve symlinks before path comparison, preventing
-    # symlink-based escape attacks where a symlink inside root points outside.
+    # Resolving first rejects links whose final destination is outside root.
     try:
         root_real = Path(root_path).resolve(strict=True)
         target_real = (root_path / rel).resolve(strict=False)
-    except OSError:
-        return None
-    try:
-        # After resolution, ensure target is within the resolved root.
         if os.path.commonpath([str(root_real), str(target_real)]) != str(root_real):
             return None
-    except ValueError:
+    except (OSError, ValueError):
         return None
-    # Additional safety: check for symlinks in the original path components
-    # by walking from target up to root_real and checking for symlinks
-    try:
-        target_lexical = (root_path / rel).resolve(strict=False)
-        parent = target_lexical.parent
-        root_lexical_resolved = root_path.resolve(strict=False)
-        while parent != root_lexical_resolved and parent != parent.parent:
-            if parent.is_symlink():
-                return None
-            parent = parent.parent
-    except OSError:
-        return None
-    target_abs = os.path.abspath(root_path / rel)
-    return Path(target_abs) if target_abs else None
+    # A parent link must be rejected even when it resolves back inside root:
+    # otherwise a manifest entry could reach a different managed file through
+    # an internal alias. Check the original components, not the resolved path.
+    candidate = root_path
+    for part in rel.parts[:-1]:
+        candidate = candidate / part
+        if candidate.is_symlink():
+            return None
+    return Path(os.path.abspath(root_path / rel))
 
 
 def _inside(target, root):
@@ -519,6 +524,17 @@ def _remove_path(target, root):
         target.unlink()
         return True
     return False
+
+
+def _prune_empty_dirs(directory, root):
+    """Remove empty directories from ``directory`` up to, not including, ``root``."""
+    directory = Path(directory)
+    while directory != root and _inside(directory, root):
+        try:
+            directory.rmdir()
+        except OSError:
+            return
+        directory = directory.parent
 
 
 def _version_from_core_text(text):
@@ -634,7 +650,9 @@ def copy_tree(package_root, stamp=None, dry_run=False):
     _validate_source_set(sources, package)
     root = app_root()
     root.parent.mkdir(parents=True, exist_ok=True)
-    staging = Path(tempfile.mkdtemp(prefix=".ovls-stage-", dir=str(root.parent)))
+    staging = Path(tempfile.mkdtemp(
+        prefix=f".ovls-stage-{os.getpid()}-", dir=str(root.parent)
+    ))
     try:
         staged = {}
         for relative, source in sources:
@@ -711,6 +729,7 @@ def copy_tree(package_root, stamp=None, dry_run=False):
                 target = _safe_target(root, relative)
                 if target is not None:
                     _remove_path(target, root)
+                    _prune_empty_dirs(target.parent, root)
             _write_text(root / MANIFEST_NAME, _manifest_text(staged))
             _write_text(root / VERSION_NAME, new_version + "\n")
         except Exception:
@@ -815,8 +834,54 @@ def remove_copy(root=None):
     }
 
 
+def _is_log_file(name, base):
+    """True for ``base`` itself or one of its rotated copies ``base.1``…``base.N``."""
+    if name == base:
+        return True
+    prefix = base + "."
+    if not name.startswith(prefix):
+        return False
+    number = name[len(prefix):]
+    return number.isdigit() and 1 <= int(number) <= proton.LOG_BACKUP_COUNT
+
+
+def _remove_log_files(directory, base):
+    removed = []
+    if not directory.is_dir():
+        return removed
+    for entry in directory.iterdir():
+        if not _is_log_file(entry.name, base):
+            continue
+        if entry.is_file() and not entry.is_symlink():
+            try:
+                entry.unlink()
+                removed.append(str(entry))
+            except OSError:
+                pass
+    return removed
+
+
+def remove_user_logs():
+    """Delete OVLS launch/NXM logs and their rotations outside the code copy.
+
+    ``launch.log`` lives in the state home and ``nxm.log`` in the data home.
+    Only exact OVLS names are removed; anything else in those directories is kept.
+    """
+    removed = []
+    state_dir = desktop.state_home() / APP_DIR
+    data_dir = desktop.data_home() / APP_DIR
+    removed += _remove_log_files(state_dir, "launch.log")
+    removed += _remove_log_files(data_dir, "nxm.log")
+    for directory in (state_dir, data_dir):
+        try:
+            directory.rmdir()
+        except OSError:
+            pass
+    return {"removed": removed}
+
+
 def _remove_runtime_artifacts(root):
-    """Delete only OVLS-generated runtime files (log, pycache) from the copy."""
+    """Delete only OVLS-generated runtime files (logs, pycache) from the copy."""
     root = Path(root)
     for current, _dirs, files in os.walk(root, topdown=False, followlinks=False):
         path = Path(current)
@@ -824,7 +889,7 @@ def _remove_runtime_artifacts(root):
             shutil.rmtree(path, ignore_errors=True)
             continue
         for name in files:
-            if name != "ovls.log":
+            if not _is_log_file(name, "ovls.log"):
                 continue
             target = path / name
             if target.is_file() and not target.is_symlink():
@@ -907,6 +972,11 @@ def install(package_root=None, prefix=None, dry_run=False, update=False):
             "shortcuts": shortcuts.install(dry_run=True),
         }
 
+    if not dry_run:
+        try:
+            _cleanup_orphaned_staging_dirs(root.parent)
+        except Exception:
+            pass
     installed_ext = _find_extension_dir(root) or package_ext
     try:
         install_result = installer.install(
@@ -1042,6 +1112,7 @@ def uninstall(prefix=None):
         }
     shortcuts_result = shortcuts.remove()
     copy_result = remove_copy()
+    logs_result = remove_user_logs()
     remove_config()
     return {
         "status": "ok",
@@ -1049,4 +1120,5 @@ def uninstall(prefix=None):
         "installation": installed,
         "shortcuts": shortcuts_result,
         "copy": copy_result,
+        "logs": logs_result,
     }

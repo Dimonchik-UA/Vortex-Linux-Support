@@ -139,6 +139,22 @@ class PackageTest(unittest.TestCase):
         )
         return plugins_dir / extension_installer.EXTENSION_ID
 
+    def test_staging_cleanup_removes_only_dead_owner_ovls_dirs(self):
+        staging_root = self.root / "staging"
+        staging_root.mkdir()
+        orphan = staging_root / ".ovls-stage-2147483647-orphan01"
+        active = staging_root / f".ovls-stage-{os.getpid()}-active01"
+        untagged = staging_root / ".ovls-stage-legacy"
+        for directory in (orphan, active, untagged):
+            directory.mkdir()
+            (directory / "marker").write_text("keep?", encoding="utf-8")
+
+        package._cleanup_orphaned_staging_dirs(staging_root)
+
+        self.assertFalse(orphan.exists())
+        self.assertTrue(active.exists())
+        self.assertTrue(untagged.exists())
+
     def test_install_copies_package_and_configures_prefix(self):
         result = self._install()
 
@@ -148,7 +164,7 @@ class PackageTest(unittest.TestCase):
         self.assertTrue((self.app / "README.md").is_file(), "user guide must be installed")
         self.assertIn("README.md", (self.app / "MANIFEST.sha256").read_text(encoding="utf-8"))
         self.assertEqual(
-            (self.app / "VERSION").read_text(encoding="utf-8").strip(), "0.3.0"
+            (self.app / "VERSION").read_text(encoding="utf-8").strip(), "0.4.0"
         )
         self.assertTrue((self.app / "install.sh").is_file())
         self.assertTrue((self.app / "src" / "linux-support" / "ovls.py").is_file())
@@ -475,6 +491,27 @@ class PackageTest(unittest.TestCase):
         self.assertIn(str(secret), result["skipped"])
         self.assertIn("linkdir/secret.txt", result["skipped"])
 
+    def test_manifest_internal_alias_cannot_delete_real_file(self):
+        self._install()
+        directory = self.app / "src" / "linux-support"
+        secret = directory / "secret.txt"
+        secret.write_text("keep me\n", encoding="utf-8")
+        alias = self.app / "alias"
+        alias.symlink_to(directory, target_is_directory=True)
+
+        manifest = self.app / "MANIFEST.sha256"
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8")
+            + f"{_sha256(secret)}  alias/secret.txt\n",
+            encoding="utf-8",
+        )
+
+        result = package.remove_copy()
+
+        self.assertTrue(secret.is_file())
+        self.assertTrue(alias.is_symlink())
+        self.assertIn("alias/secret.txt", result["skipped"])
+
     def test_install_requires_a_prefix(self):
         with mock.patch.object(package, "is_prefix", return_value=False):
             with self.assertRaises(ValueError):
@@ -490,9 +527,9 @@ class PackageTest(unittest.TestCase):
         self._install()
         core_file = self.package / "src" / "linux-support" / "core.py"
         original = core_file.read_text(encoding="utf-8")
-        self.assertIn('VERSION = "0.3.0"', original)
+        self.assertIn('VERSION = "0.4.0"', original)
         core_file.write_text(
-            original.replace('VERSION = "0.3.0"', 'VERSION = "0.3.1"'),
+            original.replace('VERSION = "0.4.0"', 'VERSION = "0.3.1"'),
             encoding="utf-8",
         )
 
@@ -519,7 +556,7 @@ class PackageTest(unittest.TestCase):
                 self._install(update=True)
 
         self.assertEqual((self.app / "VERSION").read_text(encoding="utf-8"), original_version)
-        self.assertEqual(updater.current_local_version(), "0.3.0")
+        self.assertEqual(updater.current_local_version(), "0.4.0")
 
     def test_install_fails_when_post_install_verification_fails(self):
         self._install()
@@ -527,7 +564,7 @@ class PackageTest(unittest.TestCase):
         core_file = self.package / "src" / "linux-support" / "core.py"
         core_file.write_text(
             core_file.read_text(encoding="utf-8").replace(
-                'VERSION = "0.3.0"', 'VERSION = "0.3.1"'
+                'VERSION = "0.4.0"', 'VERSION = "0.3.1"'
             ),
             encoding="utf-8",
         )
@@ -547,6 +584,20 @@ class PackageTest(unittest.TestCase):
 
         self.assertEqual((self.app / "VERSION").read_text(encoding="utf-8"), original_version)
 
+    def test_update_prunes_directory_emptied_by_stale_removal(self):
+        nested = self.package / "src" / "linux-support" / "legacy_stub"
+        nested.mkdir()
+        (nested / "old.py").write_text("OLD = True\n", encoding="utf-8")
+        self._install()
+        self.assertTrue((self.app / "src/linux-support/legacy_stub/old.py").is_file())
+
+        shutil.rmtree(nested)
+        result = self._install(update=True)
+
+        self.assertIn("src/linux-support/legacy_stub/old.py", result["copy"]["stale"])
+        self.assertFalse((self.app / "src/linux-support/legacy_stub").exists())
+        self.assertTrue((self.app / "src/linux-support/core.py").is_file())
+
     def test_update_repairs_stale_version_without_file_changes(self):
         self._install()
         (self.app / "VERSION").write_text("0.0.1\n", encoding="utf-8")
@@ -556,7 +607,7 @@ class PackageTest(unittest.TestCase):
         self.assertEqual(result["copy"]["status"], "updated")
         self.assertEqual(result["copy"]["changed"], [])
         self.assertEqual(result["copy"]["stale"], [])
-        self.assertEqual((self.app / "VERSION").read_text(encoding="utf-8").strip(), "0.3.0")
+        self.assertEqual((self.app / "VERSION").read_text(encoding="utf-8").strip(), "0.4.0")
         self.assertTrue((self.app / "MANIFEST.sha256").is_file())
 
     def test_repeated_update_of_same_version_is_still_idempotent(self):
@@ -574,7 +625,7 @@ class PackageTest(unittest.TestCase):
         core_file = self.package / "src" / "linux-support" / "core.py"
         core_file.write_text(
             core_file.read_text(encoding="utf-8").replace(
-                'VERSION = "0.3.0"', 'VERSION = "0.3.1"'
+                'VERSION = "0.4.0"', 'VERSION = "0.3.1"'
             ),
             encoding="utf-8",
         )
@@ -585,7 +636,7 @@ class PackageTest(unittest.TestCase):
 
         self.assertEqual((self.app / "VERSION").read_text(encoding="utf-8"), original_version)
         self.assertIn(
-            'VERSION = "0.3.0"',
+            'VERSION = "0.4.0"',
             (self.app / "src" / "linux-support" / "core.py").read_text(encoding="utf-8"),
         )
 
@@ -595,7 +646,7 @@ class PackageTest(unittest.TestCase):
         core_file = self.package / "src" / "linux-support" / "core.py"
         core_file.write_text(
             core_file.read_text(encoding="utf-8").replace(
-                'VERSION = "0.3.0"', 'VERSION = "0.3.1"'
+                'VERSION = "0.4.0"', 'VERSION = "0.3.1"'
             ),
             encoding="utf-8",
         )
@@ -606,7 +657,7 @@ class PackageTest(unittest.TestCase):
 
         self.assertFalse((self.app / "VERSION").exists())
         self.assertIn(
-            'VERSION = "0.3.0"',
+            'VERSION = "0.4.0"',
             (self.app / "src" / "linux-support" / "core.py").read_text(encoding="utf-8"),
         )
 
@@ -616,7 +667,7 @@ class PackageTest(unittest.TestCase):
         core_file = self.package / "src" / "linux-support" / "core.py"
         core_file.write_text(
             core_file.read_text(encoding="utf-8").replace(
-                'VERSION = "0.3.0"', 'VERSION = "0.3.1"'
+                'VERSION = "0.4.0"', 'VERSION = "0.3.1"'
             ),
             encoding="utf-8",
         )
@@ -636,8 +687,8 @@ class PackageTest(unittest.TestCase):
 
         self.assertEqual(state["status"], "ok")
         self.assertEqual(state["version_status"], "ok")
-        self.assertEqual(state["version"], "0.3.0")
-        self.assertEqual(state["expected_version"], "0.3.0")
+        self.assertEqual(state["version"], "0.4.0")
+        self.assertEqual(state["expected_version"], "0.4.0")
 
     def test_manifest_status_rejects_outdated_version(self):
         self._install()
@@ -688,7 +739,7 @@ class PackageTest(unittest.TestCase):
             )
 
         self.assertEqual(result["copy"]["status"], "unchanged")
-        self.assertEqual((self.app / "VERSION").read_text(encoding="utf-8"), "0.3.0\n")
+        self.assertEqual((self.app / "VERSION").read_text(encoding="utf-8"), "0.4.0\n")
         self.assertEqual(package.manifest_status()["status"], "ok")
 
     def test_self_refresh_dry_run_with_stale_version_writes_nothing(self):
@@ -711,7 +762,7 @@ class PackageTest(unittest.TestCase):
         self.assertEqual(result["copy"]["status"], "would_update")
         self.assertEqual(
             result["copy"]["version_repair"],
-            {"current": "0.0.1", "expected": "0.3.0"},
+            {"current": "0.0.1", "expected": "0.4.0"},
         )
 
     def test_failed_chmod_removes_already_copied_file(self):
@@ -740,7 +791,7 @@ class PackageTest(unittest.TestCase):
     def test_manifest_status_rejects_version_symlink_and_update_replaces_it(self):
         self._install()
         target = self.app / "version-target"
-        target.write_text("0.3.0\n", encoding="utf-8")
+        target.write_text("0.4.0\n", encoding="utf-8")
         version = self.app / "VERSION"
         version.unlink()
         version.symlink_to(target)
@@ -752,7 +803,7 @@ class PackageTest(unittest.TestCase):
         self._install(update=True)
 
         self.assertFalse(version.is_symlink())
-        self.assertEqual(version.read_text(encoding="utf-8"), "0.3.0\n")
+        self.assertEqual(version.read_text(encoding="utf-8"), "0.4.0\n")
 
     def test_manifest_status_rejects_conflicting_core_versions(self):
         self._install()
@@ -787,6 +838,66 @@ class PackageTest(unittest.TestCase):
             state = package.manifest_status()
         self.assertEqual(state["status"], "attention_required")
         self.assertTrue(state["modified"])
+
+
+class SafeTargetTest(unittest.TestCase):
+    """_safe_target() never follows a parent link, but keeps link entries."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix="ovls-safe-", dir=str(HERE)))
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+
+    def test_allows_regular_paths(self):
+        nested = self.root / "src" / "linux-support"
+        nested.mkdir(parents=True)
+        managed = nested / "core.py"
+        managed.write_text("ok", encoding="utf-8")
+
+        self.assertEqual(
+            package._safe_target(self.root, "src/linux-support/core.py"), managed
+        )
+
+    def test_rejects_internal_parent_alias_and_nested_chain(self):
+        real = self.root / "src"
+        real.mkdir()
+        (real / "core.py").write_text("keep", encoding="utf-8")
+        alias = self.root / "alias"
+        alias.symlink_to(real, target_is_directory=True)
+        nested = self.root / "nested"
+        nested.mkdir()
+        nested_alias = nested / "alias"
+        nested_alias.symlink_to(real, target_is_directory=True)
+
+        self.assertIsNone(package._safe_target(self.root, "alias/core.py"))
+        self.assertIsNone(package._safe_target(self.root, "nested/alias/core.py"))
+
+    def test_rejects_absolute_traversal_and_external_links(self):
+        outside_root = Path(tempfile.mkdtemp(prefix="ovls-safe-out-", dir=str(HERE)))
+        self.addCleanup(shutil.rmtree, outside_root, ignore_errors=True)
+        secret = outside_root / "secret.txt"
+        secret.write_text("keep", encoding="utf-8")
+        final_link = self.root / "link.txt"
+        final_link.symlink_to(secret)
+        parent_link = self.root / "external"
+        parent_link.symlink_to(outside_root, target_is_directory=True)
+
+        self.assertIsNone(package._safe_target(self.root, "../outside/secret.txt"))
+        self.assertIsNone(package._safe_target(self.root, str(secret)))
+        self.assertIsNone(package._safe_target(self.root, "link.txt"))
+        self.assertIsNone(package._safe_target(self.root, "external/secret.txt"))
+        self.assertEqual(secret.read_text(encoding="utf-8"), "keep")
+
+    def test_final_symlink_is_removed_as_the_managed_entry(self):
+        real = self.root / "real.txt"
+        real.write_text("data", encoding="utf-8")
+        link = self.root / "link.txt"
+        link.symlink_to(real)
+
+        target = package._safe_target(self.root, "link.txt")
+        self.assertEqual(target, link)
+        self.assertTrue(package._remove_path(target, self.root))
+        self.assertFalse(link.is_symlink())
+        self.assertEqual(real.read_text(encoding="utf-8"), "data")
 
 
 if __name__ == "__main__":

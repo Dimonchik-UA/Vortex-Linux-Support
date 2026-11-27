@@ -128,12 +128,14 @@ bash install.sh uninstall
 
 Or use the OVLS Manager from the application menu (Uninstall).
 
-Uninstall removes only OVLS-owned files: the installed copy, shortcuts, the NXM handler, and the installed OVLS Extension from the Vortex plugin directory in the selected prefix (only Extension files owned by OVLS). It does **not** remove:
+Uninstall removes only OVLS-owned files: the installed copy, shortcuts, the NXM handler, and the installed OVLS Extension from the Vortex plugin directory in the selected prefix (only Extension files owned by OVLS), and leftover data of the former JSON IPC channel (`OVLS_IPC_V2` in the Vortex folder) created by older OVLS versions; other files in that folder are kept. It does **not** remove:
 
 - Vortex and its prefix
 - Games, user mods, and staging folders
 - User settings
 - `backups/` in `~/.local/share/ovls`
+
+Uninstall also removes the OVLS launch and NXM logs with their rotated copies (`launch.log`, `nxm.log`, `.1`, `.2`).
 
 ## Directory layout
 
@@ -150,4 +152,4 @@ ovls/
   backups/<timestamp>/{app,extension,registry}
 ```
 
-The `backups/` directory is kept when OVLS is uninstalled, so you can recover previous versions if needed.
+The `backups/` directory is kept when OVLS is uninstalled, so you can recover previous versions if needed. It keeps the three most recent snapshots; older ones are removed automatically after a successful update or install with `--backup`.

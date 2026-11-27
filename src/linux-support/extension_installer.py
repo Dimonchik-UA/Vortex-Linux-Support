@@ -1,10 +1,12 @@
 import json
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
 
 import steam
+import tempfiles
 
 
 EXTENSION_ID = "ovls-json-ipc-v2"
@@ -474,7 +476,14 @@ def install_extension(source_path, prefix_path, backup_dir=None, home=None, stea
             backups.append(str(backup_dir / name))
 
     plugins_dir.mkdir(parents=True, exist_ok=True)
-    staging_dir = Path(tempfile.mkdtemp(prefix=f".{EXTENSION_ID}-", suffix=STAGING_SUFFIX, dir=str(plugins_dir)))
+    tempfiles.cleanup_orphaned_dirs(
+        plugins_dir, f".{EXTENSION_ID}-", STAGING_SUFFIX
+    )
+    staging_dir = Path(tempfile.mkdtemp(
+        prefix=f".{EXTENSION_ID}-{os.getpid()}-",
+        suffix=STAGING_SUFFIX,
+        dir=str(plugins_dir),
+    ))
     try:
         for name, data in source_bytes.items():
             (staging_dir / name).write_bytes(data)
@@ -545,6 +554,77 @@ def remove_extension(prefix_path):
         "skipped_files": skipped,
         "directory_removed": directory_removed,
         "remaining_files": remaining,
+    }
+
+
+# Data written by the removed Stage 9 JSON IPC (OVLS 0.4.0) under Vortex's
+# userData directory. Only these exact names are removed.
+LEGACY_IPC_DIR = "OVLS_IPC_V2"
+LEGACY_IPC_ENTRIES = (
+    "sessions", "requests", "processing", "responses", "acks", "dedup",
+    "processed", "quarantine", "client_state", "status.json", "processed_ids.json",
+)
+LEGACY_IPC_TEMP = re.compile(r"^(status|processed_ids)\.json\..+\.tmp$")
+
+
+def remove_legacy_ipc_data(prefix_path, dry_run=False):
+    """Delete the leftovers of the removed IPC channel from one prefix.
+
+    Removes only the fixed names listed above and matching temp files in the
+    OVLS_IPC_V2 directory. Foreign files are never touched; the directory
+    itself is removed only when it becomes empty. Idempotent: an absent
+    directory is reported as ``absent``.
+    """
+    try:
+        vortex_dir, _plugins_dir = _resolve_plugin_directory(prefix_path)
+    except (OSError, ValueError) as exc:
+        return {"status": "unresolved", "reason": str(exc)}
+
+    root = vortex_dir / LEGACY_IPC_DIR
+    if not root.is_symlink() and not root.exists():
+        return {"status": "absent", "target": str(root), "removed": []}
+    if root.is_symlink() or not root.is_dir():
+        return {
+            "status": "skipped", "target": str(root),
+            "reason": "not a real directory; left untouched",
+        }
+
+    try:
+        names = sorted(entry.name for entry in root.iterdir())
+    except OSError as exc:
+        return {"status": "error", "target": str(root), "reason": str(exc), "removed": []}
+
+    owned = [
+        name for name in names
+        if name in LEGACY_IPC_ENTRIES or LEGACY_IPC_TEMP.match(name)
+    ]
+    removed = []
+    try:
+        for name in owned:
+            path = root / name
+            if not dry_run:
+                if path.is_dir() and not path.is_symlink():
+                    shutil.rmtree(path)
+                else:
+                    path.unlink()
+            removed.append(name)
+        remaining = [name for name in names if name not in removed]
+        directory_removed = False
+        if not remaining and not dry_run:
+            root.rmdir()
+            directory_removed = True
+    except OSError as exc:
+        return {
+            "status": "error", "target": str(root), "reason": str(exc),
+            "removed": removed,
+        }
+
+    return {
+        "status": "would_remove" if dry_run else ("removed" if removed or directory_removed else "absent"),
+        "target": str(root),
+        "removed": removed,
+        "kept_foreign": remaining,
+        "directory_removed": directory_removed if not dry_run else False,
     }
 
 

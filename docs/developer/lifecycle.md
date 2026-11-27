@@ -31,8 +31,8 @@ When launched, OVLS:
 
 1. Detects the Proton prefix (explicit argument, remembered prefix, or auto-detection)
 2. Resolves the prefix Proton tool from Steam's `CompatToolMapping` first, then from the installed tool recorded in `compatdata/<appid>/config_info`; prefers DW-Proton / Proton-GE and then any Proton only if neither source gives an installed tool (no version is required. Proton-GE and DW-Proton Latest showed no window issues in testing; Proton 11.0, Hotfix, Experimental did), and launches the official Windows `Vortex.exe` through it
-3. The Extension loads inside Vortex and connects back to OVLS via JSON IPC
-4. External component and Extension communicate via file-based JSON IPC
+3. The Extension loads inside Vortex and periodically checks for the deployment-failure case
+4. The Extension acts only through the Vortex API; there is no IPC channel to the external component
 
 ## Update
 
@@ -42,7 +42,7 @@ To update OVLS:
 2. Run `bash install.sh` and choose **Install / Update**
 3. The update installs code from the new package into the existing installation
 
-Update is transactional: new files are staged first, previous files are backed up, and the previous state is restored on failure.
+Update is transactional: new files are staged first, previous files are backed up, and the previous state is restored on failure. Files removed from the package are deleted together with the directories they leave empty. Leftover data of the former JSON IPC channel is removed during install and update, once the new Extension is in place.
 
 ## Removal
 
@@ -50,25 +50,14 @@ Run `bash install.sh uninstall` or use OVLS Manager (Uninstall). Uninstall:
 
 - Removes OVLS-owned files (installed copy, shortcuts, NXM handler)
 - Removes Extension from the Proton prefix plugin directory (`info.json`, `index.js`)
+- Removes leftover data of the former JSON IPC channel (`OVLS_IPC_V2` in the Vortex folder), keeping any other files there
 - Does **not** remove: Vortex, prefix, games, mods, staging folders, user settings, `backups/` in `~/.local/share/ovls/`
 
 After uninstall, OVLS Manager closes (its installed copy is removed). Reinstall with `bash install.sh install`.
 
-## IPC Session Lifecycle
+## Extension Lifecycle
 
-The IPC session lifecycle involves several distinct scenarios:
-
-1. **First Extension load**: Extension loads inside Vortex and generates `sessionId` (UUID v4). Extension creates the IPC root plus `sessions/<sessionId>/` with `requests/`, `processing/`, `responses/`, and global `acks/`, `dedup/`, `processed/`, `quarantine/`, `client_state/`.
-2. **Renderer re-initialization**: If the renderer process restarts (e.g., via `loadURL()`), the Extension re-initializes. Whether `sessionId` is preserved or regenerated across renderer restart is **not confirmed** (OQ-5 open question).
-3. **New Vortex launch**: A new Vortex launch starts a new Extension instance. Whether `sessionId` persists across separate Vortex launches is **not confirmed**.
-
-External component and Extension communicate via file-based JSON IPC during the session.
-
-## IPC Session Termination
-
-IPC sessions end when Vortex is closed or the Extension is unloaded. On next Vortex launch, a new Extension instance loads. Whether `sessionId` persists based on main process identity is **not confirmed** (OQ-5 open question).
-
-ACK cleanup does not guarantee completion of all operations; it acknowledges receipt of a specific response.
+The Extension is loaded by Vortex on each launch and re-initialized if the renderer restarts. It performs staging checks and the staging-folder fix exclusively through the Vortex API. No IPC session, `sessionId`, ACK or IPC directory exists in OVLS 0.4.0; the former Stage 9 IPC lifecycle was removed together with the IPC channel.
 
 ## Version Compatibility
 

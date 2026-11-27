@@ -2,6 +2,39 @@
 
 This file records user-facing changes to OVLS. The newest version is listed first.
 
+## 0.4.0
+
+**Status:** prepared in the working tree; version `0.4.0` is not published yet. The source version is `0.4.0`.
+
+Removes the experimental JSON IPC channel and stops uncontrolled log/backup growth. User-facing flows are unchanged.
+
+### Fixed
+
+- Launch and NXM logs are now rotated while Vortex runs. Previously rotation was declared but never happened, so the files could grow without limit. Each log keeps at most two rotated copies (1 MB each).
+- The `/tmp` fallback for launch and NXM logs is removed. If the log directory cannot be written, Vortex starts without a log and a message is printed.
+- Uninstall removes `ovls.log.1`, `ovls.log.2`, `launch.log*` and `nxm.log*` in addition to `ovls.log`.
+- `mimeapps.list.ovls-backup-*` is written only when the file changes, and older copies are removed after a successful update. Identical copies are no longer created.
+- The standalone `system.reg.ovls-backup` in the prefix is a single file that is overwritten on each repair, instead of a new file per run.
+- `install --backup` uses the same timestamp format as snapshots, so its directories are removed by the retention limit.
+- Prefix diagnostics use the same Windows profile resolver as Extension install/verify/uninstall instead of assuming `steamuser`; when several profiles contain Vortex, no profile is guessed (`has_vortex: false`).
+- Package path protection validates every parent component of the lexical path under the install root, so a symlinked parent pointing to a different directory is rejected.
+- Uninstall removes the OVLS icon only when the ownership marker is present. A foreign `ovls.png` without a valid marker is left untouched.
+
+### Removed
+
+- The experimental JSON IPC channel between the external component and the Vortex Extension, with its `ovls.py ipc ping|get-state|status` commands and the `ping`, `get-state` and `ipc-status` aliases. No user scenario depended on it; the Extension is kept for the staging fix.
+- Unused imports (`subprocess` and `time` in `ovls.py`, `os` in `manager.py`).
+
+### Changed
+
+- Install, update and uninstall remove leftover data of the former IPC channel (`OVLS_IPC_V2` in the Vortex folder of the prefix). Other files in that folder are kept.
+- Update removes the directories left empty after files are removed from the package.
+- The duplicated `_zenity` and `_shortcut_notes` helpers in Manager are delegates to the single implementation in Setup UI.
+
+## Unreleased
+
+No unreleased changes.
+
 ## 0.3.0
 
 Extends Vortex prefix discovery to all registered Steam libraries and prepares staging for games installed outside the home filesystem.

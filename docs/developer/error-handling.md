@@ -1,73 +1,39 @@
 # Error Handling
 
-OVLS documents error categories and the IPC error codes emitted by its Vortex Extension. Recovery procedures are limited; several recovery mechanisms are recommended but not yet implemented.
+OVLS documents error categories for its external component and Vortex Extension. The Extension reports staging-fix problems through Vortex notifications and logs. There is no IPC error channel in OVLS 0.4.0: the former Stage 9 IPC error codes and ACK/dedup recovery were removed with the IPC channel.
 
-## Conceptual Error Categories (documentation only)
-
-These categories describe error domains in prose. They are **not** emitted as `response.error.code` values by the Extension.
+## Error Categories
 
 | Category | Meaning |
 |----------|---------|
 | `SYSTEM_ERROR` | System-level error (file I/O, permissions, missing dependencies) |
 | `VORTEX_UNAVAILABLE` | Vortex application is not running or not reachable |
-| `IPC_ERROR` | IPC message exchange failure |
 | `INVALID_STATE` | Nonsensical or inconsistent state |
 | `UNSUPPORTED_OPERATION` | Requested operation is not supported |
+| `STAGING_FIX_ERROR` | Staging-folder check or `SET_MOD_INSTALL_PATH` write failed |
 
-## Extension IPC Error Codes
-
-The following codes are actually emitted by the Extension in `response.error.code` (`src/extension/index.js`):
-
-| Code | Meaning |
-|------|---------|
-| `INVALID_JSON` | Request file contains invalid JSON |
-| `INVALID_REQUEST_ID` | Request ID is not a safe single path component |
-| `CHECKSUM_MISMATCH` | Request checksum verification failed |
-| `CHECKSUM_ERROR` | Checksum verification raised an error |
-| `INVALID_REQUEST` | Request is not a JSON object |
-| `UNSUPPORTED_PROTOCOL_VERSION` | Protocol version not supported |
-| `MISSING_REQUEST_ID` | Request missing request ID |
-| `MISSING_REQUEST_TYPE` | Request missing type field |
-| `UNSAFE_STATE_PATH` | Requested state path not in allowlist |
-| `UNKNOWN_REQUEST_TYPE` | Request type not recognized |
-| `EXTENSION_ERROR` | Error raised while handling a valid request |
-| `DUPLICATE_REQUEST` | Request ID has already completed and its result is not cached |
+These categories describe error domains in prose; they are not a wire protocol.
 
 ## Retry Policy
 
-Retry behavior is limited. The following behavior is implemented:
-
-- Invalid requests (malformed input, unknown request type) are not retried.
-- When a component is unavailable, IPC continues with limited functionality.
-
-No retry count, interval, or automatic retry procedure is specified or implemented beyond what the individual components implement.
+No retry count, interval, or automatic retry procedure is specified. The Extension performs its staging check on the existing poll interval; a failed staging write is reported through a Vortex notification and the log.
 
 ## Recovery
 
-### IPC Recovery After Failure
-
-IPC communication is re-established after failure where possible. Component state recovery is recommended but not fully implemented.
-
-### Dedup Recovery
-
-On Extension restart there is no one-shot scan at init. `pollOnce()` re-scans the current session's `processing/` on every 2 s tick and handles any file found. Because a new `sessionId` is generated for each initialization, files left in a previous session directory are not recovered.
-
-## Directory fsync Limitations
-
-Under tested Proton 11.0, directory `fsync()` is unavailable (`EPERM`). File `fsync()` works. OVLS implements controlled degradation:
-
-- `EPERM`/`ENOTSUP`/`EINVAL` → mandatory warning + limited guarantee; IPC continues
-- `EIO`/`EISDIR`/unknown errors → propagated
-- File fsync errors are not suppressed
-
-Full durability against power loss is **not** claimed. Directory fsync unavailability has been observed under tested Proton 11.0; behavior under other Proton versions or configurations is not confirmed.
+Component state recovery is not implemented. The Extension re-evaluates the current Vortex state on each staging check, so a transient failure does not require a manual reset.
 
 ## Logging
 
-OVLS logs to:
-- `~/.local/share/ovls/ovls/ovls.log` — package manager operations
-- `$XDG_STATE_HOME/ovls/launch.log` — launch attempts and Proton startup
-- `<prefix>/pfx/drive_c/users/<user>/AppData/Roaming/Vortex/vortex.log` — Vortex application log (OVLS extension lines start with `OVLS9`)
+OVLS writes three log files of its own. Each is limited to a 1 MB current file and two rotated copies (`.1`, `.2`), so it never exceeds about 3 MB:
+- `~/.local/share/ovls/ovls/ovls.log` — package manager log (rotated; no records are written at present)
+- `$XDG_STATE_HOME/ovls/launch.log` — Vortex launch and Proton output, written by the launcher
+- `$XDG_DATA_HOME/ovls/nxm.log` — Vortex output for `nxm://` links
+
+Proton output goes to a detached `logpump.py` process that rotates the file while Vortex is running. It exits when Vortex closes its output. There is no fallback to `/tmp`: if the log directory cannot be written, Vortex is started without a log and the launcher prints a message.
+
+Uninstall removes `ovls.log`, `launch.log`, `nxm.log` and their rotated copies. Other files in those directories are kept.
+
+`<prefix>/pfx/drive_c/users/<user>/AppData/Roaming/Vortex/vortex.log` belongs to Vortex; OVLS extension lines start with `OVLS9`.
 
 Logs are intended not to contain secrets or sensitive data, but this has not been exhaustively verified across all code paths.
 
@@ -75,6 +41,6 @@ Logs are intended not to contain secrets or sensitive data, but this has not bee
 
 - Do not modify official Vortex
 - Do not perform system operations from the Extension
-- Use allowlist for Vortex data access
+- Read only the Vortex state needed for the staging fix
 - Do not disclose secrets
 - Log without sensitive data

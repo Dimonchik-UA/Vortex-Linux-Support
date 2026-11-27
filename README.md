@@ -27,7 +27,8 @@ OVLS uses a **hybrid architecture**:
 
 - **External Linux Support**: A Python-based component that handles SteamOS/Proton/prefix/filesystem/NXM tasks outside of Vortex.
 - **Vortex Extension**: A small extension loaded inside the official Vortex that handles operations requiring Vortex context (state reading, deployment-failure notifications, and the `SET_MOD_INSTALL_PATH` staging write).
-- **JSON IPC**: File-based JSON communication between the external component and the extension for queries that need to cross the boundary.
+
+The two components have no IPC channel; the Extension acts only through the Vortex API.
 
 The official Vortex application files are never modified. OVLS adds its own Extension (including generated `host.json`), desktop shortcuts, an NXM handler, and launch automation around it; uninstall removes the OVLS-owned Extension files.
 
@@ -51,7 +52,7 @@ OVLS does not require root access.
 
 ## Project status
 
-A published release is available from [GitHub Releases](https://github.com/Dimonchik-UA/Vortex-Linux-Support/releases); see `CHANGELOG.md` for its version history. The current working tree also contains unreleased changes targeting 0.3.0: prefix detection in additional Steam libraries, a `host.json` v2 volume map for staging, and storage-type detection. The source version is now `0.3.0`; version 0.3.0 is **not published yet** (the latest published release is 0.2.2). Core user flows (launch, Extension install/update, NXM, mod workflow) are implemented and tested. The staging fix for games on an additional library is implemented, but an automatic staging move on a physical SD card has not been verified in a live Vortex session; see [Staging folder](docs/user/staging.md) and [Known limitations](docs/user/limitations.md).
+Core user flows (launch, Extension install/update, NXM, mod workflow) are implemented and tested. The staging fix for games on an additional library is implemented, but an automatic staging move on a physical SD card has not been verified in a live Vortex session; see [Staging folder](docs/user/staging.md) and [Known limitations](docs/user/limitations.md).
 
 ## Installation
 
@@ -81,7 +82,7 @@ Do not run the installer from inside the source checkout unless you are developi
 ## Documentation
 
 - **User documentation**: [Installation](docs/user/installation.md), [Usage](docs/user/usage.md), [NXM integration](docs/user/nxm.md), [Staging folder](docs/user/staging.md), [Supported environment](docs/user/environment.md), [Diagnostics](docs/user/diagnostics.md), [Known limitations](docs/user/limitations.md).
-- **Developer documentation**: [Architecture](docs/developer/architecture.md), [Component design](docs/developer/component-design.md), [IPC contract](docs/developer/ipc-contract.md), [Error handling](docs/developer/error-handling.md), [Lifecycle](docs/developer/lifecycle.md).
+- **Developer documentation**: [Architecture](docs/developer/architecture.md), [Component design](docs/developer/component-design.md), [Error handling](docs/developer/error-handling.md), [Lifecycle](docs/developer/lifecycle.md).
 - **GitHub sections**: [Releases](https://github.com/Dimonchik-UA/Vortex-Linux-Support/releases), [Issues](https://github.com/Dimonchik-UA/Vortex-Linux-Support/issues), [package README](installer/README.md).
 
 ## Known limitations

@@ -2,12 +2,9 @@ import json
 import logging
 import logging.handlers
 import os
-import sys
-from datetime import datetime
-from pathlib import Path
 
 APP_NAME = "OVLS Linux Support"
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 
 # Log rotation constants
 LOG_MAX_BYTES = 1_000_000  # 1 MB
@@ -51,7 +48,3 @@ def setup_logging(log_path: str):
 
 def print_status(status):
     print(json.dumps(status, indent=2, ensure_ascii=False))
-
-
-def now():
-    return datetime.now().isoformat()

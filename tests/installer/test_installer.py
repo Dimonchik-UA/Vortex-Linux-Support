@@ -188,6 +188,92 @@ class InstallerTest(unittest.TestCase):
             "other",
         )
 
+    def _legacy_ipc_tree(self):
+        root = self.vortex_dir / "OVLS_IPC_V2"
+        for sub in (
+            "sessions/abc/requests", "sessions/abc/responses", "acks",
+            "dedup", "processed", "client_state",
+        ):
+            (root / sub).mkdir(parents=True)
+        (root / "dedup" / "req-1.json").write_text("{}", encoding="utf-8")
+        (root / "status.json").write_text("{}", encoding="utf-8")
+        (root / "status.json.node.1.2.abcdef0123456789.tmp").write_text("x", encoding="utf-8")
+        return root
+
+    def test_legacy_ipc_data_removed_on_install_and_uninstall(self):
+        root = self._legacy_ipc_tree()
+        result = installer.install(str(self.prefix), str(SOURCE))
+        self.assertEqual(result["legacy_ipc"]["status"], "removed")
+        self.assertFalse(root.exists())
+        self.assertTrue((self.plugins / extension_installer.EXTENSION_ID / "index.js").is_file())
+
+        root = self._legacy_ipc_tree()
+        removed = installer.uninstall(str(self.prefix))
+        self.assertEqual(removed["legacy_ipc"]["status"], "removed")
+        self.assertFalse(root.exists())
+
+    def test_legacy_ipc_cleanup_is_idempotent(self):
+        first = extension_installer.remove_legacy_ipc_data(str(self.prefix))
+        self.assertEqual(first["status"], "absent")
+        installer.install(str(self.prefix), str(SOURCE))
+        second = installer.install(str(self.prefix), str(SOURCE))
+        self.assertEqual(second["legacy_ipc"]["status"], "absent")
+
+    def test_legacy_ipc_cleanup_keeps_foreign_files(self):
+        root = self._legacy_ipc_tree()
+        foreign = root / "user-note.txt"
+        foreign.write_text("keep", encoding="utf-8")
+        result = extension_installer.remove_legacy_ipc_data(str(self.prefix))
+        self.assertEqual(result["status"], "removed")
+        self.assertEqual(result["kept_foreign"], ["user-note.txt"])
+        self.assertFalse(result["directory_removed"])
+        self.assertFalse((root / "sessions").exists())
+        self.assertTrue(foreign.is_file())
+
+    def test_legacy_ipc_cleanup_leaves_vortex_data_alone(self):
+        self._legacy_ipc_tree()
+        state = self.vortex_dir / "state.json"
+        state.write_text("{}", encoding="utf-8")
+        other = self.plugins / "some-other-extension"
+        other.mkdir()
+        (other / "info.json").write_text("{}", encoding="utf-8")
+
+        extension_installer.remove_legacy_ipc_data(str(self.prefix))
+
+        self.assertTrue(state.is_file())
+        self.assertTrue((other / "info.json").is_file())
+
+    def test_symlinked_legacy_directory_is_not_followed(self):
+        target = self.root / "outside"
+        target.mkdir()
+        (target / "keep.txt").write_text("x", encoding="utf-8")
+        (self.vortex_dir / "OVLS_IPC_V2").symlink_to(target, target_is_directory=True)
+
+        result = extension_installer.remove_legacy_ipc_data(str(self.prefix))
+
+        self.assertEqual(result["status"], "skipped")
+        self.assertTrue((target / "keep.txt").is_file())
+
+    def test_legacy_ipc_cleanup_dry_run_deletes_nothing(self):
+        root = self._legacy_ipc_tree()
+        result = extension_installer.remove_legacy_ipc_data(str(self.prefix), dry_run=True)
+        self.assertEqual(result["status"], "would_remove")
+        self.assertTrue((root / "sessions").is_dir())
+
+    def test_legacy_ipc_cleanup_error_does_not_break_install(self):
+        self._legacy_ipc_tree()
+        real_rmtree = shutil.rmtree
+
+        def failing_rmtree(path, *args, **kwargs):
+            if "OVLS_IPC_V2" in str(path):
+                raise OSError("denied")
+            return real_rmtree(path, *args, **kwargs)
+
+        with mock.patch.object(extension_installer.shutil, "rmtree", side_effect=failing_rmtree):
+            result = installer.install(str(self.prefix), str(SOURCE))
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["legacy_ipc"]["status"], "error")
+
     def test_install_requires_vortex(self):
         (self.prefix / "pfx" / "drive_c" / "Program Files" / "Vortex" / "Vortex.exe").unlink()
         with self.assertRaises(ValueError):

@@ -20,6 +20,7 @@ import diagnostics  # noqa: E402
 import launcher  # noqa: E402
 import manager  # noqa: E402
 import package  # noqa: E402
+import proton  # noqa: E402
 import registry  # noqa: E402
 import setup_ui  # noqa: E402
 import steam  # noqa: E402
@@ -927,3 +928,49 @@ class StorageDeviceTypeTest(unittest.TestCase):
 
     def test_non_device_mount_source_is_unknown(self):
         self.assertEqual(self._type_for("proc"), "Storage type unknown")
+
+
+class InspectPrefixProfileTest(unittest.TestCase):
+    """inspect_prefix() uses the same profile resolver as the installer."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix="ovls-inspect-", dir=str(HERE)))
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+
+    def _make_prefix(self, name):
+        prefix = self.root / name
+        (prefix / "pfx" / "drive_c" / "users").mkdir(parents=True)
+        return prefix
+
+    def _make_profile(self, prefix, username):
+        vortex = prefix / "pfx" / "drive_c" / "users" / username / "AppData" / "Roaming" / "Vortex"
+        vortex.mkdir(parents=True)
+        return vortex
+
+    def test_steamuser_profile_is_reported(self):
+        prefix = self._make_prefix("steamuser-prefix")
+        vortex = self._make_profile(prefix, "steamuser")
+
+        result = proton.inspect_prefix(str(prefix))
+
+        self.assertTrue(result["has_vortex"])
+        self.assertEqual(result["vortex_path"], str(vortex))
+
+    def test_alternative_profile_is_reported(self):
+        prefix = self._make_prefix("custom-prefix")
+        vortex = self._make_profile(prefix, "DeckUser")
+
+        result = proton.inspect_prefix(str(prefix))
+
+        self.assertTrue(result["has_vortex"])
+        self.assertEqual(result["vortex_path"], str(vortex))
+
+    def test_ambiguous_profiles_are_not_guessed(self):
+        prefix = self._make_prefix("ambiguous-prefix")
+        self._make_profile(prefix, "steamuser")
+        self._make_profile(prefix, "DeckUser")
+
+        result = proton.inspect_prefix(str(prefix))
+
+        self.assertFalse(result["has_vortex"])
+        self.assertIsNone(result["vortex_path"])

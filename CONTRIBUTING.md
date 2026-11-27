@@ -36,9 +36,8 @@ Before contributing, read the following documentation:
 
 1. `docs/developer/architecture.md` — overall architecture and hybrid model
 2. `docs/developer/component-design.md` — component responsibilities
-3. `docs/developer/ipc-contract.md` — IPC protocol between Extension and Linux Support
-4. `docs/developer/error-handling.md` — error handling and recovery
-5. `docs/developer/lifecycle.md` — installation, operation, update, removal lifecycle
+3. `docs/developer/error-handling.md` — error handling and recovery
+4. `docs/developer/lifecycle.md` — installation, operation, update, removal lifecycle
 
 ## Making Changes
 

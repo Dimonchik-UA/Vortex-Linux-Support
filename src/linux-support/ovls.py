@@ -3,8 +3,6 @@ import argparse
 import json
 import os
 import sys
-import subprocess
-import time
 from pathlib import Path
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -29,35 +27,7 @@ import shortcuts
 DEFAULT_EXTENSION = str(layout.ROOT / layout.EXTENSION_TREE)
 
 LOG_PATH = os.path.join(BASE_DIR, "ovls.log")
-logger = core.setup_logging(LOG_PATH)
-
-# IPC cleanup: remove stale files older than 30 days
-IPC_TTL_DAYS = 30
-IPC_TTL_SECONDS = IPC_TTL_DAYS * 86400
-IPC_CLEANUP_DIRS = ("dedup", "processed", "client_state")
-
-
-def cleanup_ipc_stale_files(prefix_path: str):
-    """Remove IPC files older than TTL days.
-    
-    Called at startup to prevent unbounded growth of dedup/, processed/, client_state/.
-    """
-    ipc_root = os.path.join(prefix_path, "drive_c", "users", "steamuser", "AppData", "Roaming", "Vortex", "OVLS_IPC_V2")
-    if not os.path.isdir(ipc_root):
-        return
-    cutoff = time.time() - IPC_TTL_SECONDS
-    for subdir in IPC_CLEANUP_DIRS:
-        d = os.path.join(ipc_root, subdir)
-        if not os.path.isdir(d):
-            continue
-        for fname in os.listdir(d):
-            fpath = os.path.join(d, fname)
-            try:
-                if os.path.getmtime(fpath) < cutoff:
-                    os.remove(fpath)
-            except OSError:
-                pass
-
+core.setup_logging(LOG_PATH)
 
 def cmd_status(args):
     steam_root = steam.find_steam_root()
@@ -198,8 +168,7 @@ def cmd_remove_extension(args):
 def cmd_install(args):
     backup_root = None
     if args.backup:
-        from datetime import datetime
-        stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        stamp = package._stamp()
         backup_root = os.path.join(args.backup_root, stamp, "extension")
     try:
         result = installer.install(
@@ -213,6 +182,8 @@ def cmd_install(args):
             applications_dir=args.desktop_dir,
         )
         print(json.dumps(result, indent=2, ensure_ascii=False))
+        if backup_root is not None and result.get("status") == "ok":
+            package._cleanup_old_backups(args.backup_root)
         registry_state = result.get("vortex_registry", {})
         print(
             f"Vortex uninstall key: {registry_state.get('action', 'unknown')}"
@@ -309,69 +280,6 @@ def cmd_diagnostics(args):
     return 0
 
 
-def cmd_ping(args):
-    try:
-        # Check if session directory is provided (required for IPC operations)
-        if args.session_dir is None:
-            print("Error: --session-dir parameter is required for ipc ping command", file=sys.stderr)
-            return 2
-        
-        from pathlib import Path
-        from external.client import request_and_ack
-        result = request_and_ack(
-            "ping",
-            {},
-            ipc_dir=Path(args.ipc_dir),
-            timeout=args.timeout,
-            session_dir=Path(args.session_dir),
-        )
-        print(json.dumps(result, indent=2, ensure_ascii=False))
-        return 0 if result.get("ok") else 2
-    except Exception as exc:
-        print(f"Ping failed: {exc}", file=sys.stderr)
-        return 2
-
-
-def cmd_get_state(args):
-    try:
-        # Check if session directory is provided (required for IPC operations)
-        if args.session_dir is None:
-            print("Error: --session-dir parameter is required for ipc get-state command", file=sys.stderr)
-            return 2
-        
-        from pathlib import Path
-        from external.client import request_and_ack
-        # Handle path as string or list
-        if isinstance(args.path, str):
-            path_list = args.path.split(".") if "." in args.path else ["settings"]
-        else:
-            path_list = args.path
-        result = request_and_ack(
-            "getState",
-            {"path": path_list},
-            ipc_dir=Path(args.ipc_dir),
-            timeout=args.timeout,
-            session_dir=Path(args.session_dir),
-        )
-        print(json.dumps(result, indent=2, ensure_ascii=False))
-        return 0 if result.get("ok") else 2
-    except Exception as exc:
-        print(f"Get state failed: {exc}", file=sys.stderr)
-        return 2
-
-
-def cmd_ipc_status(args):
-    try:
-        from pathlib import Path
-        from external.client import check_status
-        status = check_status(Path(args.ipc_dir))
-        print(json.dumps({"ok": status is not None, "status": status}, indent=2, ensure_ascii=False))
-        return 0 if status is not None else 2
-    except Exception as exc:
-        print(f"IPC status failed: {exc}", file=sys.stderr)
-        return 2
-
-
 def main():
     parser = argparse.ArgumentParser(description=core.APP_NAME)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -432,7 +340,7 @@ def main():
         help="Steam client directory (defaults to STEAM_COMPAT_CLIENT_INSTALL_PATH or discovery)",
     )
 
-    p = sub.add_parser("install-extension", help="Install or update the OVLS Stage 9 Extension")
+    p = sub.add_parser("install-extension", help="Install or update the OVLS Extension")
     p.add_argument(
         "--prefix",
         required=True,
@@ -441,10 +349,10 @@ def main():
     p.add_argument(
         "--source",
         default=DEFAULT_EXTENSION,
-        help="Extension package directory (defaults to the in-project Stage 9 package)",
+        help="Extension package directory (defaults to the in-project package)",
     )
 
-    p = sub.add_parser("remove-extension", help="Remove the managed OVLS Stage 9 Extension")
+    p = sub.add_parser("remove-extension", help="Remove the managed OVLS Extension")
     p.add_argument(
         "--prefix",
         required=True,
@@ -456,7 +364,7 @@ def main():
     p.add_argument(
         "--source",
         default=DEFAULT_EXTENSION,
-        help="Extension package directory (defaults to the in-project Stage 9 package)",
+        help="Extension package directory (defaults to the in-project package)",
     )
     p.add_argument(
         "--no-steam-library",
@@ -491,7 +399,7 @@ def main():
     p.add_argument(
         "--source",
         default=DEFAULT_EXTENSION,
-        help="Extension package directory (defaults to the in-project Stage 9 package)",
+        help="Extension package directory (defaults to the in-project package)",
     )
     p.add_argument(
         "--no-desktop",
@@ -542,86 +450,27 @@ def main():
     p = sub.add_parser("diagnostics")
     p.add_argument("--prefix", default=None)
 
-    # IPC commands group
-    ipc_parser = sub.add_parser("ipc", help="Stage 9 JSON IPC operations")
-    ipc_sub = ipc_parser.add_subparsers(dest="ipc_command", required=True)
-
-    # ping command under ipc - session-dir is required for ping
-    p_ping = ipc_sub.add_parser("ping", help="Send ping request to Stage 9 Extension")
-    p_ping.add_argument("--ipc-dir", required=True, help="Stage 9 IPC directory")
-    p_ping.add_argument("--session-dir", required=True, help="Stage 9 session directory (required for ping)")
-    p_ping.add_argument("--timeout", type=float, default=10.0, help="Request timeout in seconds")
-
-    # get-state command under ipc - session-dir is required for get-state
-    p_get_state = ipc_sub.add_parser("get-state", help="Retrieve state data from Stage 9 Extension")
-    p_get_state.add_argument("--ipc-dir", required=True, help="Stage 9 IPC directory")
-    p_get_state.add_argument("--session-dir", required=True, help="Stage 9 session directory (required for get-state)")
-    p_get_state.add_argument("--path", default="settings", help="State path (dot notation, e.g., 'settings.profile.game')")
-    p_get_state.add_argument("--timeout", type=float, default=10.0, help="Request timeout in seconds")
-
-    # status command under ipc - only requires IPC directory
-    p_status = ipc_sub.add_parser("status", help="Check Stage 9 Extension status")
-    p_status.add_argument("--ipc-dir", required=True, help="Stage 9 IPC directory")
-
-    # Backward compatibility aliases (session-dir now required for consistency)
-    p_old_ping = sub.add_parser("ping", help="Alias for ipc ping (maintained for compatibility)")
-    p_old_ping.add_argument("--ipc-dir", required=True, help="Stage 9 IPC directory")
-    p_old_ping.add_argument("--session-dir", required=True, help="Stage 9 session directory (required for ping)")
-    p_old_ping.add_argument("--timeout", type=float, default=10.0, help="Request timeout in seconds")
-
-    p_old_get_state = sub.add_parser("get-state", help="Alias for ipc get-state (maintained for compatibility)")
-    p_old_get_state.add_argument("--ipc-dir", required=True, help="Stage 9 IPC directory")
-    p_old_get_state.add_argument("--session-dir", required=True, help="Stage 9 session directory (required for get-state)")
-    p_old_get_state.add_argument("--path", default="settings", help="State path (dot notation, e.g., 'settings.profile.game')")
-    p_old_get_state.add_argument("--timeout", type=float, default=10.0, help="Request timeout in seconds")
-
-    p_old_ipc_status = sub.add_parser("ipc-status", help="Alias for ipc status (maintained for compatibility)")
-    p_old_ipc_status.add_argument("--ipc-dir", required=True, help="Stage 9 IPC directory")
-
     args = parser.parse_args()
 
-    # IPC cleanup on startup for commands that operate on a prefix
-    if hasattr(args, "prefix") and args.prefix:
-        cleanup_ipc_stale_files(args.prefix)
-
-    # Route to appropriate handler
-    if hasattr(args, 'ipc_command'):
-        # Handle ipc subcommand
-        if args.ipc_command == "ping":
-            return cmd_ping(args)
-        elif args.ipc_command == "get-state":
-            return cmd_get_state(args)
-        elif args.ipc_command == "status":
-            return cmd_ipc_status(args)
-    else:
-        # Handle legacy commands (backward compatibility)
-        if args.command == "ping":
-            return cmd_ping(args)
-        elif args.command == "get-state":
-            return cmd_get_state(args)
-        elif args.command == "ipc-status":
-            return cmd_ipc_status(args)
-        else:
-            # Handle other legacy commands
-            handlers = {
-                "status": cmd_status,
-                "discover": cmd_discover,
-                "inspect-prefix": cmd_inspect_prefix,
-                "launch": cmd_launch,
-                "nxm": cmd_nxm,
-                "launcher": cmd_launcher,
-                "manager": cmd_manager,
-                "shortcuts": cmd_shortcuts,
-                "install-extension": cmd_install_extension,
-                "remove-extension": cmd_remove_extension,
-                "install": cmd_install,
-                "verify": cmd_verify,
-                "uninstall": cmd_uninstall,
-                "package": cmd_package,
-                "check-fs": cmd_check_fs,
-                "diagnostics": cmd_diagnostics,
-            }
-            return handlers.get(args.command, lambda x: 1)(args) or 0
+    handlers = {
+        "status": cmd_status,
+        "discover": cmd_discover,
+        "inspect-prefix": cmd_inspect_prefix,
+        "launch": cmd_launch,
+        "nxm": cmd_nxm,
+        "launcher": cmd_launcher,
+        "manager": cmd_manager,
+        "shortcuts": cmd_shortcuts,
+        "install-extension": cmd_install_extension,
+        "remove-extension": cmd_remove_extension,
+        "install": cmd_install,
+        "verify": cmd_verify,
+        "uninstall": cmd_uninstall,
+        "package": cmd_package,
+        "check-fs": cmd_check_fs,
+        "diagnostics": cmd_diagnostics,
+    }
+    return handlers[args.command](args)
 
 
 if __name__ == "__main__":

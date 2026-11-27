@@ -13,7 +13,6 @@ Vortex settings or other extensions, and it never moves mods or staging.
 """
 
 import hashlib
-import json
 import os
 import tempfile
 from pathlib import Path
@@ -23,6 +22,7 @@ import extension_installer
 import layout
 import registry
 import steam
+import tempfiles
 
 PROJECT_ROOT = layout.ROOT
 
@@ -173,7 +173,10 @@ def ensure_steam_library(prefix, steam_root=None, dry_run=False):
 
     config = prefix / STEAM_CONFIG_REL
     config.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temp_path = tempfile.mkstemp(prefix=".libraryfolders-", suffix=".tmp", dir=str(config.parent))
+    tempfiles.cleanup_orphaned_files(config.parent, ".libraryfolders-")
+    descriptor, temp_path = tempfile.mkstemp(
+        prefix=f".libraryfolders-{os.getpid()}-", suffix=".tmp", dir=str(config.parent)
+    )
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
             handle.write(_render_library_vdf(wine_paths))
@@ -391,12 +394,20 @@ def install(
         )
 
     extension_ok = extension_result["status"] in ("installed", "unchanged", "would_install")
+    # Old IPC data is removed only once the new Extension is in place: otherwise
+    # the previous Extension is still active and would recreate it.
+    legacy_ipc = (
+        extension_installer.remove_legacy_ipc_data(prefix_path, dry_run=dry_run)
+        if extension_ok
+        else {"status": "kept", "reason": "Extension was not updated"}
+    )
     return {
         "status": "ok" if extension_ok else "attention_required",
         "dry_run": dry_run,
         "installation": info,
         "vortex_registry": registry_result,
         "extension": extension_result,
+        "legacy_ipc": legacy_ipc,
         "steam_library": steam_state,
         "nxm_handler": desktop_result,
         "proton": _proton_state(prefix_path),
@@ -443,6 +454,7 @@ def uninstall(prefix_path, with_desktop=False, applications_dir=None):
     if info["running_vortex"]:
         raise ValueError("Vortex is running for this prefix; close it before uninstalling")
     removed = extension_installer.remove_extension(prefix_path)
+    legacy_ipc = extension_installer.remove_legacy_ipc_data(prefix_path)
     desktop_result = (
         desktop.remove_handler(applications_dir=applications_dir)
         if with_desktop
@@ -452,6 +464,7 @@ def uninstall(prefix_path, with_desktop=False, applications_dir=None):
         "status": "ok",
         "installation": info,
         "extension": removed,
+        "legacy_ipc": legacy_ipc,
         "nxm_handler": desktop_result,
         "steam_library": _steam_library_state(prefix_path),
         "vortex_registry": {"status": "kept", "key": registry.UNINSTALL_KEY},

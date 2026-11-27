@@ -86,7 +86,7 @@ This checks the installed copy, extension, NXM handler, and shortcuts.
 
 1. Run `install.sh` and choose **Uninstall**.
    Or use the OVLS Manager from the application menu.
-2. Uninstall removes only OVLS-owned files: the installed copy, shortcuts, the NXM handler, and the OVLS Extension (`info.json`, `index.js`, `host.json`) from the Vortex plugin directory.
+2. Uninstall removes only OVLS-owned files: the installed copy, shortcuts, the NXM handler, and the OVLS Extension (`info.json`, `index.js`, `host.json`) from the Vortex plugin directory. It also removes leftover data of the former JSON IPC channel (`OVLS_IPC_V2` in the Vortex folder) that older OVLS versions created; other files in that folder are kept.
 3. If the selected prefix contains Vortex but no OVLS Extension, uninstall is blocked and all OVLS components are kept.
 4. The following are **not** removed:
    - Vortex and its prefix

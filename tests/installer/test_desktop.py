@@ -163,6 +163,79 @@ class DesktopHandlerTest(unittest.TestCase):
         backups = list(self.config.glob("mimeapps.list.ovls-backup-*"))
         self.assertEqual(len(backups), 1)
 
+    def test_desktop_temp_cleanup_preserves_live_and_unrelated_files(self):
+        target = self.apps / desktop.HANDLER_ID
+        active = self.apps / f".{target.name}-{os.getpid()}-active01.tmp"
+        orphan = self.apps / f".{target.name}-2147483647-orphan01.tmp"
+        unrelated = self.apps / ".someone-elses.tmp"
+        for item in (active, orphan, unrelated):
+            item.write_text("temp", encoding="utf-8")
+
+        desktop._write_text(target, "replacement")
+
+        self.assertTrue(active.exists())
+        self.assertFalse(orphan.exists())
+        self.assertTrue(unrelated.exists())
+
+    def write_mimeapps(self, text):
+        self.config.mkdir(parents=True, exist_ok=True)
+        (self.config / "mimeapps.list").write_text(text, encoding="utf-8")
+
+    def handler_entry(self):
+        return (
+            "[Default Applications]\n"
+            "x-scheme-handler/nxm=ovls-nxm.desktop;org.example.Other.desktop;\n"
+        )
+
+    def backups(self):
+        return sorted(self.config.glob("mimeapps.list.ovls-backup-*"))
+
+    def test_identical_content_does_not_add_a_backup(self):
+        self.write_mimeapps(self.handler_entry())
+        self.assertTrue(desktop._remove_default_entry())
+        self.assertEqual(len(self.backups()), 1)
+
+        self.write_mimeapps(self.handler_entry())
+        with mock.patch.object(desktop.shutil, "copy2", wraps=desktop.shutil.copy2) as copy:
+            self.assertTrue(desktop._remove_default_entry())
+        copy.assert_not_called()
+        self.assertEqual(len(self.backups()), 1)
+
+    def test_changed_content_replaces_older_backup_and_keeps_restore_point(self):
+        self.write_mimeapps(self.handler_entry())
+        desktop._remove_default_entry()
+        first = self.backups()[0]
+
+        before_second = self.handler_entry() + "[Added Associations]\nfoo/bar=other.desktop;\n"
+        self.write_mimeapps(before_second)
+        self.assertTrue(desktop._remove_default_entry())
+
+        backups = self.backups()
+        self.assertEqual(len(backups), 1)
+        self.assertNotEqual(backups[0], first)
+        self.assertEqual(backups[0].read_text(encoding="utf-8"), before_second)
+
+    def test_backup_survives_when_write_fails(self):
+        self.write_mimeapps(self.handler_entry())
+        desktop._remove_default_entry()
+        first = self.backups()[0]
+
+        self.write_mimeapps(self.handler_entry() + "[Added Associations]\nfoo/bar=x.desktop;\n")
+        with mock.patch.object(desktop, "_write_text", side_effect=OSError("disk full")):
+            with self.assertRaises(OSError):
+                desktop._remove_default_entry()
+
+        self.assertTrue(first.is_file())
+        self.assertGreaterEqual(len(self.backups()), 1)
+
+    def test_repeated_register_remove_cycles_stay_bounded(self):
+        for cycle in range(5):
+            self.write_mimeapps(
+                self.handler_entry() + f"[Added Associations]\nfoo/{cycle}=x.desktop;\n"
+            )
+            desktop._remove_default_entry()
+        self.assertEqual(len(self.backups()), 1)
+
 
 class NxmCommandTest(unittest.TestCase):
     def test_prepare_launch_forwards_download_argument(self):

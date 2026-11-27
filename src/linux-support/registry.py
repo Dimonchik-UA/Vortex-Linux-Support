@@ -27,7 +27,8 @@ import re
 import shutil
 import tempfile
 import time
-from datetime import datetime, timezone
+
+import tempfiles
 from pathlib import Path
 
 UNINSTALL_KEY = (
@@ -343,15 +344,15 @@ def _sha256(path):
 
 
 def _backup(path, backup_dir=None):
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    """Copy ``path`` to a single, overwritten ``<name>.ovls-backup`` file.
+
+    The copy is only needed to roll back the write that follows it, so one
+    fixed name per directory is enough. Inside a package snapshot the directory
+    is per timestamp and is removed by the snapshot retention.
+    """
     directory = Path(backup_dir) if backup_dir is not None else path.parent
     directory.mkdir(parents=True, exist_ok=True)
-    base = f"{path.name}.ovls-backup-{stamp}"
-    candidate = directory / base
-    counter = 1
-    while candidate.exists():
-        candidate = directory / f"{base}-{counter}"
-        counter += 1
+    candidate = directory / f"{path.name}.ovls-backup"
     try:
         shutil.copy2(path, candidate)
     except OSError as exc:
@@ -364,8 +365,9 @@ def _backup(path, backup_dir=None):
 
 
 def _write_atomic(path, data):
+    tempfiles.cleanup_orphaned_files(path.parent, ".system.reg-", ".ovls.tmp")
     descriptor, temp_path = tempfile.mkstemp(
-        prefix=".system.reg-", suffix=".ovls.tmp", dir=str(path.parent)
+        prefix=f".system.reg-{os.getpid()}-", suffix=".ovls.tmp", dir=str(path.parent)
     )
     try:
         with os.fdopen(descriptor, "wb") as handle:

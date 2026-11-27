@@ -22,7 +22,7 @@ from pathlib import Path
 
 import desktop
 import layout
-import package
+import tempfiles
 
 APP_DIR = Path("ovls")
 BIN_DIR = APP_DIR / "bin"
@@ -108,10 +108,15 @@ def _icon_marker_path():
     return _icon_target().with_suffix(_icon_target().suffix + ".ovls-owned")
 
 
+def _icon_owned(marker):
+    """An OVLS icon has a regular marker file carrying our ownership line."""
+    return marker.is_file() and not marker.is_symlink() and _has_marker(marker, MARKER)
+
+
 def install_icon(dry_run=False):
     """Install the Vortex icon into the user's hicolor theme.
 
-    A foreign ``vortex.png`` (placed there by another program or by hand) is
+    A foreign ``ovls.png`` (placed there by another program or by hand) is
     never overwritten: the companion ``.ovls-owned`` marker decides.  Removal
     deletes both the icon and the marker, so the foreign file survives.
     """
@@ -120,7 +125,7 @@ def install_icon(dry_run=False):
     marker = _icon_marker_path()
     if not source.is_file():
         return {"status": "absent", "source": str(source)}
-    if target.is_symlink() or (target.exists() and not marker.is_file()):
+    if target.is_symlink() or (target.exists() and not _icon_owned(marker)):
         return {"status": "skipped", "reason": "foreign_icon", "path": str(target)}
     if dry_run:
         if not target.is_file():
@@ -136,12 +141,16 @@ def remove_icon():
     """Remove the OVLS-owned icon and its marker; foreign icons stay."""
     target = _icon_target()
     marker = _icon_marker_path()
+    owned = _icon_owned(marker)
     removed, skipped = [], []
     for path in (marker, target):
         if not path.exists() and not path.is_symlink():
             continue
         if path.is_symlink():
             skipped.append({"path": str(path), "reason": "symlink"})
+            continue
+        if not owned:
+            skipped.append({"path": str(path), "reason": "not_owned"})
             continue
         try:
             path.unlink()
@@ -159,7 +168,7 @@ def icon_status():
         state = "source_missing"
     elif not target.is_file():
         state = "missing"
-    elif not marker.is_file():
+    elif not _icon_owned(marker):
         state = "foreign"
     else:
         state = "ok"
@@ -224,8 +233,9 @@ def desktop_dir(explicit=None):
 
 def _write_text(path, text, mode=0o644):
     path.parent.mkdir(parents=True, exist_ok=True)
+    tempfiles.cleanup_orphaned_files(path.parent, f".{path.name}-")
     descriptor, temp_path = tempfile.mkstemp(
-        prefix=f".{path.name}-", suffix=".tmp", dir=str(path.parent)
+        prefix=f".{path.name}-{os.getpid()}-", suffix=".tmp", dir=str(path.parent)
     )
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:

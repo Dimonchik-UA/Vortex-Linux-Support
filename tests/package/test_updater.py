@@ -289,6 +289,21 @@ class CacheTests(UpdaterTestBase):
         self.assertEqual(loaded.status, "up_to_date")
         self.assertTrue(loaded.from_cache)
 
+    def test_update_check_temp_cleanup_is_exact_and_preserves_live_owner(self):
+        path = self.state / "update-check.json"
+        self.state.mkdir(parents=True, exist_ok=True)
+        orphan = self.state / ".update-check-2147483647-orphan01.tmp"
+        active = self.state / f".update-check-{os.getpid()}-active01.tmp"
+        unrelated = self.state / ".not-ovls.tmp"
+        for item in (orphan, active, unrelated):
+            item.write_text("temporary", encoding="utf-8")
+
+        updater.save_cache(updater.UpdateCheckResult(status="unknown", checked_at=1), path=path)
+
+        self.assertFalse(orphan.exists())
+        self.assertTrue(active.exists())
+        self.assertTrue(unrelated.exists())
+
     def test_cache_ttl_expiry(self):
         path = self.state / "ovls" / "update-check.json"
         result = updater.UpdateCheckResult(status="unknown", checked_at=1000.0)
@@ -532,6 +547,22 @@ class PackageValidationTests(UpdaterTestBase):
 
 
 class PrepareReleaseTests(UpdaterTestBase):
+    def test_orphan_update_dir_cleanup_preserves_live_and_untagged_dirs(self):
+        temp_root = self.root / "tmp"
+        temp_root.mkdir()
+        orphan = temp_root / "ovls-update-2147483647-orphan01"
+        active = temp_root / f"ovls-update-{os.getpid()}-active01"
+        untagged = temp_root / "ovls-update-legacy"
+        for directory in (orphan, active, untagged):
+            directory.mkdir()
+            (directory / "marker").write_text("keep?", encoding="utf-8")
+
+        updater._cleanup_orphaned_update_dirs(temp_root)
+
+        self.assertFalse(orphan.exists())
+        self.assertTrue(active.exists())
+        self.assertTrue(untagged.exists())
+
     def _build_release(self, version="0.2.0", tamper_archive=False, tamper_checksums=False, bad_package_version=None):
         work = self.root / "work"
         if work.exists():

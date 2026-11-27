@@ -1,7 +1,7 @@
 {
   "id": "ovls-json-ipc-v2",
-  "name": "OVLS JSON IPC v2",
-  "version": "0.3.0",
+  "name": "OVLS Linux Support",
+  "version": "0.4.0",
   "author": "OVLS",
-  "description": "Stage 9 reliable JSON IPC prototype — per-request files, separate directories"
+  "description": "Staging folder fix and Vortex integration for OVLS on SteamOS/Linux"
 }

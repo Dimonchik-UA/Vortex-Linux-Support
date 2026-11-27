@@ -61,6 +61,10 @@ class ShortcutsTest(unittest.TestCase):
             self.app / "bin" / "ovls-manager",
         ]
 
+    def _icon_paths(self):
+        target = shortcuts._icon_target()
+        return target, target.with_suffix(target.suffix + ".ovls-owned")
+
     def test_install_creates_shortcuts_that_use_the_installed_copy(self):
         result = shortcuts.install()
 
@@ -161,6 +165,80 @@ class ShortcutsTest(unittest.TestCase):
 
         self.assertEqual(
             state["files"]["shortcut_manager_menu"]["status"], "not_owned"
+        )
+
+    def test_remove_icon_deletes_owned_icon_and_marker(self):
+        self.assertEqual(shortcuts.install()["icon"]["status"], "installed")
+        target, marker = self._icon_paths()
+        self.assertTrue(target.is_file())
+        self.assertTrue(marker.is_file())
+
+        result = shortcuts.remove_icon()
+
+        self.assertEqual(result["status"], "ok")
+        self.assertFalse(target.exists())
+        self.assertFalse(marker.exists())
+
+    def test_remove_icon_keeps_foreign_icon_without_marker(self):
+        target, marker = self._icon_paths()
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"foreign")
+
+        result = shortcuts.remove_icon()
+
+        self.assertIn(str(target), [item["path"] for item in result["skipped"]])
+        self.assertEqual(target.read_bytes(), b"foreign")
+        self.assertFalse(marker.exists())
+        self.assertEqual(shortcuts.icon_status()["status"], "foreign")
+
+    def test_remove_icon_without_icon_is_noop(self):
+        result = shortcuts.remove_icon()
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["removed"], [])
+        self.assertEqual(result["skipped"], [])
+
+    def test_remove_icon_keeps_icon_with_incorrect_marker(self):
+        target, marker = self._icon_paths()
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"foreign")
+        marker.write_text("not an OVLS marker\n", encoding="utf-8")
+
+        result = shortcuts.remove_icon()
+
+        self.assertIn(str(target), [item["path"] for item in result["skipped"]])
+        self.assertIn(str(marker), [item["path"] for item in result["skipped"]])
+        self.assertEqual(target.read_bytes(), b"foreign")
+        self.assertEqual(marker.read_text(encoding="utf-8"), "not an OVLS marker\n")
+        self.assertEqual(shortcuts.icon_status()["status"], "foreign")
+
+    def test_install_does_not_take_over_icon_with_incorrect_marker(self):
+        target, marker = self._icon_paths()
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"foreign")
+        marker.write_text("not an OVLS marker\n", encoding="utf-8")
+
+        result = shortcuts.install()
+
+        self.assertEqual(result["icon"]["status"], "skipped")
+        self.assertEqual(target.read_bytes(), b"foreign")
+
+    def test_remove_icon_does_not_follow_icon_symlink(self):
+        target, marker = self._icon_paths()
+        target.parent.mkdir(parents=True)
+        external = self.root / "external.png"
+        external.write_bytes(b"keep")
+        target.symlink_to(external)
+        marker.write_text(shortcuts.MARKER + "\n", encoding="utf-8")
+
+        result = shortcuts.remove_icon()
+
+        self.assertTrue(target.is_symlink())
+        self.assertEqual(external.read_bytes(), b"keep")
+        self.assertFalse(marker.exists())
+        self.assertIn(
+            str(target),
+            [item["path"] for item in result["skipped"] if item["reason"] == "symlink"],
         )
 
 

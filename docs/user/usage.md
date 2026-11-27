@@ -8,7 +8,7 @@ OVLS installs a desktop shortcut (`ovls-vortex.desktop`) both in the application
 
 1. OVLS detects your Proton prefix (see below).
 2. It launches the official Windows `Vortex.exe` through the Proton tool resolved for the Vortex prefix: the explicit Steam selection in `config/config.vdf → CompatToolMapping` first, then — when there is no entry for that appid — the tool recorded in `compatdata/<appid>/config_info`. A tool found there is used only if it is installed (its directory contains `proton`); OVLS only reads these Steam files. Only if neither source yields an installed Proton does it prefer a recommended tool (DW-Proton or Proton-GE), then any other installed Proton. No specific Proton version is required. There is no separate DW-Proton branch: it is one of the recommended names used only in this last fallback.
-3. The Vortex Extension inside Vortex loads and connects back to OVLS.
+3. The Vortex Extension loads inside Vortex. It checks the staging folder and applies the staging fix through Vortex's internal API (`SET_MOD_INSTALL_PATH`); there is no IPC channel or connection back to OVLS.
 
 You do not need to pass `--proton` manually: OVLS uses the Proton selected in Steam for this prefix, or the installed tool recorded in the prefix when Steam has no selection. `--proton` still overrides the choice explicitly. DW-Proton Latest and Proton-GE Latest are the compatibility recommendations — both worked normally with Vortex in our tests — and the automatic choice uses them only when no installed tool can be resolved from Steam. Proton 11.0, Proton Hotfix, and Proton Experimental show double window controls, a white band, interface shift, and cursor-click offset in testing, but OVLS will still launch with them.
 
@@ -63,6 +63,7 @@ Use this action to remove OVLS components. Uninstall removes only OVLS-owned fil
 - The installed OVLS Extension from the Vortex plugin directory in the selected prefix (only OVLS-owned files: `info.json`, `index.js`, and generated `host.json`)
 - The NXM handler
 - Desktop shortcuts
+- Leftover data of the former JSON IPC channel (`OVLS_IPC_V2` in the Vortex folder of the selected prefix), if an older OVLS version created it; other files in that folder are kept
 
 Vortex, its prefix, user mods, staging folders, user settings, and `backups/` in `~/.local/share/ovls` are **not** removed.
 

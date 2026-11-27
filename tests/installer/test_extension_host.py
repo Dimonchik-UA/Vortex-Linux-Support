@@ -13,6 +13,7 @@ real Vortex installation is touched. Coverage:
 """
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -92,6 +93,21 @@ class ExtensionHostFileTest(HostConfigTest):
         self.assertEqual(removed["status"], "removed")
         self.assertIn("host.json", removed["removed_files"])
         self.assertFalse(self.target.exists())
+
+    def test_extension_install_staging_cleanup_is_owner_aware(self):
+        plugins = self.target.parent
+        orphan = plugins / f".{extension_installer.EXTENSION_ID}-2147483647-orphan01.installing"
+        active = plugins / f".{extension_installer.EXTENSION_ID}-{os.getpid()}-active01.installing"
+        legacy = plugins / f".{extension_installer.EXTENSION_ID}-old.installing"
+        for directory in (orphan, active, legacy):
+            directory.mkdir()
+            (directory / "marker").write_text("data", encoding="utf-8")
+
+        extension_installer.install_extension(SOURCE, str(self.prefix), home=self.home)
+
+        self.assertFalse(orphan.exists())
+        self.assertTrue(active.exists())
+        self.assertTrue(legacy.exists())
 
     def test_verify_compares_the_same_host_payload(self):
         extension_installer.install_extension(SOURCE, str(self.prefix), home=self.home)

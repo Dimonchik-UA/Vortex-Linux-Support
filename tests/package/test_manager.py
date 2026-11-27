@@ -32,6 +32,19 @@ def _make_prefix(root, name="compatdata"):
 
 
 class ManagerTest(unittest.TestCase):
+    def test_shared_display_helpers_delegate_to_setup_ui(self):
+        with mock.patch.object(manager.setup_ui, "_zenity", return_value=True) as zenity:
+            self.assertTrue(manager._zenity("zenity"))
+        zenity.assert_called_once_with("zenity")
+
+        result = {"status": "failed", "reason": "test"}
+        expected = ["Shortcuts: test"]
+        with mock.patch.object(
+            manager.setup_ui, "_shortcut_notes", return_value=expected
+        ) as shortcut_notes:
+            self.assertIs(manager._shortcut_notes(result), expected)
+        shortcut_notes.assert_called_once_with(result)
+
     def setUp(self):
         self.root = Path(tempfile.mkdtemp(prefix="ovls-manager-", dir=str(HERE)))
         self.data = self.root / "data"

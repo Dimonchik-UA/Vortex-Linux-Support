@@ -12,7 +12,6 @@ Destructive actions require a dialog answer; without a dialog tool they are
 refused instead of running silently. No new dependencies, no Vortex changes.
 """
 
-import os
 import sys
 import threading
 from pathlib import Path
@@ -43,7 +42,7 @@ _update_check_done.set()
 
 
 def _zenity(tool):
-    return os.path.basename(tool).startswith("zenity")
+    return setup_ui._zenity(tool)
 
 
 def choose_action():
@@ -129,16 +128,7 @@ def _confirm(text):
 
 
 def _shortcut_notes(shortcut_result):
-    """Human-readable explanation for shortcut conflicts or failures."""
-    lines = []
-    skipped = shortcut_result.get("skipped") or []
-    if skipped:
-        lines.append("Shortcuts were not overwritten (the file already exists and is not owned by OVLS):")
-        lines.extend(f"  {item['path']}" for item in skipped)
-    if shortcut_result.get("status") != "ok" and not skipped:
-        reason = shortcut_result.get("reason") or "could not create all shortcuts"
-        lines.append(f"Shortcuts: {reason}")
-    return lines
+    return setup_ui._shortcut_notes(shortcut_result)
 
 
 def _start_background_update_check():

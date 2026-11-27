@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import layout
+import tempfiles
 
 HANDLER_ID = "ovls-nxm.desktop"
 HANDLER_NAME = "ovls-nxm"
@@ -115,8 +116,9 @@ def _render_desktop(wrapper):
 
 def _write_text(path, text, mode=None):
     path.parent.mkdir(parents=True, exist_ok=True)
+    tempfiles.cleanup_orphaned_files(path.parent, f".{path.name}-")
     descriptor, temp_path = tempfile.mkstemp(
-        prefix=f".{path.name}-", suffix=".tmp", dir=str(path.parent)
+        prefix=f".{path.name}-{os.getpid()}-", suffix=".tmp", dir=str(path.parent)
     )
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
@@ -213,16 +215,33 @@ def _remove_default_entry():
     if not changed:
         return False
 
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    backup = config.with_name(f"{config.name}.{BACKUP_SUFFIX}-{stamp}")
-    shutil.copy2(config, backup)
+    previous = _mimeapps_backups(config)
+    if previous and _read(previous[-1]) == text:
+        backup = previous[-1]
+    else:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        backup = config.with_name(f"{config.name}.{BACKUP_SUFFIX}-{stamp}")
+        shutil.copy2(config, backup)
 
     output = []
     for section in order:
         output.append(section)
         output.extend(sections[section])
     _write_text(config, "\n".join(output).rstrip("\n") + "\n")
+    for old in previous:
+        if old != backup and old.is_file() and not old.is_symlink():
+            old.unlink()
     return True
+
+
+def _mimeapps_backups(config):
+    """Our ``mimeapps.list`` backups, oldest first (stamps sort chronologically)."""
+    found = [
+        path
+        for path in config.parent.glob(f"{config.name}.{BACKUP_SUFFIX}-*")
+        if path.is_file() and not path.is_symlink()
+    ]
+    return sorted(found)
 
 
 def install_handler(

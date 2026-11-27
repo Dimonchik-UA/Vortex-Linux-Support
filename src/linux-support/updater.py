@@ -40,7 +40,7 @@ from typing import Any, Callable, Mapping, Optional
 
 import core
 import desktop
-import layout
+import tempfiles
 
 # ---------------------------------------------------------------------------
 # Public configuration
@@ -270,7 +270,10 @@ def save_cache(result: UpdateCheckResult, path: Optional[Path] = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = dict(result.to_dict())
     payload["from_cache"] = False
-    tmp_fd, tmp_name = tempfile.mkstemp(prefix=".update-check-", suffix=".tmp", dir=str(path.parent))
+    tempfiles.cleanup_orphaned_files(path.parent, ".update-check-")
+    tmp_fd, tmp_name = tempfile.mkstemp(
+        prefix=f".update-check-{os.getpid()}-", suffix=".tmp", dir=str(path.parent)
+    )
     try:
         with os.fdopen(tmp_fd, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, ensure_ascii=False)
@@ -345,7 +348,10 @@ def _download_to_file(
     )
     sha = hashlib.sha256()
     size = 0
-    tmp_fd, tmp_name = tempfile.mkstemp(prefix=".download-", suffix=".tmp", dir=str(destination.parent))
+    tempfiles.cleanup_orphaned_files(destination.parent, ".download-")
+    tmp_fd, tmp_name = tempfile.mkstemp(
+        prefix=f".download-{os.getpid()}-", suffix=".tmp", dir=str(destination.parent)
+    )
     os.close(tmp_fd)
     try:
         open_fn = opener or urllib.request.urlopen
@@ -611,7 +617,10 @@ def _safe_extract_tar(
                 if extracted is None:
                     raise PackageFormatError(f"Cannot extract archive member: {member.name}")
                 # Write atomically within destination
-                fd, tmp_name = tempfile.mkstemp(prefix=".extract-", suffix=".tmp", dir=str(target_path.parent))
+                tempfiles.cleanup_orphaned_files(target_path.parent, ".extract-")
+                fd, tmp_name = tempfile.mkstemp(
+                    prefix=f".extract-{os.getpid()}-", suffix=".tmp", dir=str(target_path.parent)
+                )
                 try:
                     with os.fdopen(fd, "wb") as out, extracted:
                         remaining = member.size
@@ -730,16 +739,6 @@ def validate_package_root(package_root: Path, expected_version: Optional[str] = 
     if (code_dir / "ovls.py").is_symlink():
         raise PackageFormatError("Package ovls.py is unsafe")
 
-    # Extension directory must exist for install flow to work with this package
-    ext_dirs = [
-        code_dir / "extension",
-        package_root / "src" / "extension",
-        package_root / "Development" / "Phase9_JSON_IPC" / "extension",
-    ]
-    if not any(d.is_dir() and not d.is_symlink() for d in ext_dirs):
-        # Not strictly required for all layouts, but expected for OVLS releases
-        pass
-
     version = read_package_version(package_root)
     if expected_version:
         nv_expected = normalize_version(expected_version) or expected_version
@@ -844,6 +843,12 @@ def check_for_updates(
     return result
 
 
+def _cleanup_orphaned_update_dirs(base_tmp=None):
+    """Remove OVLS update directories only when their tagged owner is gone."""
+    search_dir = Path(base_tmp) if base_tmp is not None else Path(tempfile.gettempdir())
+    tempfiles.cleanup_orphaned_dirs(search_dir, "ovls-update-")
+
+
 def prepare_release_package(
     update_info: Optional[UpdateCheckResult] = None,
     temp_root: Optional[Path] = None,
@@ -864,6 +869,12 @@ def prepare_release_package(
     if update_info is None:
         update_info = check_for_updates(timeout=timeout, opener=opener)
 
+    # Clean up orphaned temp directories from previous crashed runs.
+    try:
+        _cleanup_orphaned_update_dirs(temp_root)
+    except Exception:
+        pass
+
     if update_info.status != "update_available":
         # Safer to require update_available or explicit URLs+version.
         if not (
@@ -880,7 +891,9 @@ def prepare_release_package(
     base_tmp = Path(temp_root) if temp_root is not None else None
     if base_tmp is not None:
         base_tmp.mkdir(parents=True, exist_ok=True)
-    temp_dir = Path(tempfile.mkdtemp(prefix="ovls-update-", dir=str(base_tmp) if base_tmp else None))
+    temp_dir = Path(tempfile.mkdtemp(
+        prefix=f"ovls-update-{os.getpid()}-", dir=str(base_tmp) if base_tmp else None
+    ))
     try:
         archive_path = temp_dir / str(update_info.installer_name)
         checksums_path = temp_dir / CHECKSUMS_ASSET_NAME

@@ -24,6 +24,7 @@ import desktop
 import package
 import proton
 import steam
+import tempfiles
 
 CONFIG_FILE = "config.json"
 VORTEX_EXE_REL = Path("pfx") / "drive_c" / "Program Files" / "Vortex" / "Vortex.exe"
@@ -45,8 +46,9 @@ def load_config():
 def save_config(data):
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
+    tempfiles.cleanup_orphaned_files(path.parent, f".{path.name}-")
     descriptor, temp_path = tempfile.mkstemp(
-        prefix=f".{path.name}-", suffix=".tmp", dir=str(path.parent)
+        prefix=f".{path.name}-{os.getpid()}-", suffix=".tmp", dir=str(path.parent)
     )
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:

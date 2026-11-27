@@ -61,6 +61,34 @@ def _build_standalone(out_dir: Path, archive: bool = False) -> Path:
     return out_dir
 
 
+def _dist_state():
+    """Snapshot PROJECT/dist without creating, moving or deleting it."""
+    dist = PROJECT / "dist"
+    if not dist.exists() and not dist.is_symlink():
+        return None
+    paths = [dist]
+    try:
+        paths.extend(sorted(dist.rglob("*")))
+    except OSError:
+        pass
+    state = {}
+    for path in paths:
+        key = str(path.relative_to(dist) or ".")
+        try:
+            info = path.stat(follow_symlinks=False)
+        except OSError as exc:
+            state[key] = ("stat-error", exc.errno)
+            continue
+        entry = (path.is_symlink(), info.st_size, info.st_mtime_ns)
+        if path.is_symlink():
+            try:
+                entry += (os.readlink(path),)
+            except OSError:
+                entry += (None,)
+        state[key] = entry
+    return state
+
+
 def _build_prefix(root: Path) -> Path:
     prefix = Path(root) / "compatdata"
     pfx = prefix / "pfx"
@@ -155,14 +183,12 @@ class StandaloneReleaseInstallTest(unittest.TestCase):
             "ovls/shortcuts.py",
             "ovls/proton.py",
             "ovls/steam.py",
-            "ovls/ipc.py",
             "ovls/layout.py",
             "ovls/extension_installer.py",
             "ovls/diagnostics.py",
             "ovls/filesystem.py",
             "ovls/registry.py",
             "ovls/setup_ui.py",
-            "ovls/external/client.py",
         ]
 
     def test_install_from_standalone_layout_copies_full_code(self):
@@ -186,7 +212,6 @@ class StandaloneReleaseInstallTest(unittest.TestCase):
         manifest = (self.app / "MANIFEST.sha256").read_text(encoding="utf-8")
         self.assertIn("ovls/ovls.py", manifest)
         self.assertIn("ovls/updater.py", manifest)
-        self.assertIn("ovls/external/client.py", manifest)
         self.assertIn("ovls/extension/index.js", manifest)
         self.assertIn("ovls/extension/info.json", manifest)
         self.assertTrue((self.app / "VERSION").is_file())
@@ -299,6 +324,7 @@ class StandaloneUpdaterFlowTest(unittest.TestCase):
     """End-to-end local flow: dist archive -> verify -> extract -> validate -> install -> cleanup."""
 
     def setUp(self):
+        self.dist_before = _dist_state()
         self.root = Path(tempfile.mkdtemp(prefix="ovls-updflow-", dir=str(HERE)))
         self.data = self.root / "data"
         self.config = self.root / "config"
@@ -353,7 +379,11 @@ class StandaloneUpdaterFlowTest(unittest.TestCase):
         sums = self.sums
         self.assertTrue(archive.is_file(), "temporary OVLS-Installer.tar.gz missing")
         self.assertTrue(sums.is_file(), "temporary SHA256SUMS missing")
-        self.assertFalse((PROJECT / "dist").exists(), "test must not create dist/ in the clone")
+        self.assertEqual(
+            _dist_state(),
+            self.dist_before,
+            "test must not create or modify dist/ in the clone",
+        )
 
         # SHA256 verification
         sums_text = sums.read_text(encoding="utf-8")
@@ -394,7 +424,6 @@ class StandaloneUpdaterFlowTest(unittest.TestCase):
                 "ovls/updater.py",
                 "ovls/manager.py",
                 "ovls/package.py",
-                "ovls/external/client.py",
                 "ovls/extension/index.js",
                 "ovls/extension/info.json",
             ):
@@ -429,9 +458,9 @@ class StandaloneUpdaterFlowTest(unittest.TestCase):
 
         core_file = pkg_root / "ovls" / "core.py"
         core_text = core_file.read_text(encoding="utf-8")
-        self.assertIn('VERSION = "0.3.0"', core_text)
+        self.assertIn('VERSION = "0.4.0"', core_text)
         core_file.write_text(
-            core_text.replace('VERSION = "0.3.0"', 'VERSION = "0.3.1"'),
+            core_text.replace('VERSION = "0.4.0"', 'VERSION = "0.3.1"'),
             encoding="utf-8",
         )
         updater.validate_package_root(pkg_root, expected_version="0.3.1")

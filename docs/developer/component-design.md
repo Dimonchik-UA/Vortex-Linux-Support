@@ -31,9 +31,6 @@ Filesystem checks: case sensitivity, hardlink support, accessibility, free space
 ### `installer.py`
 Installs and verifies the OVLS components inside the Proton prefix: the Vortex Extension, the Vortex uninstall registry key, and `libraryfolders.vdf`. Does not stage or roll back the package copy.
 
-### `ipc.py`
-Legacy minimal IPC client for communication between external component and Vortex Extension. Uses flat layout with single request/response files. **Not used in production** — the production client is `external/client.py` with per-request files and session-scoped layout. Retained for backward compatibility and diagnostics only.
-
 ### `launcher.py`
 Desktop-mode launcher: discovers Proton prefix, locates Vortex.exe, launches Vortex through Proton.
 
@@ -44,7 +41,7 @@ Path resolution: determines source tree and extension tree locations for both pr
 Graphical manager (kdialog/zenity): Install/Update, Verify, Uninstall, Change prefix actions.
 
 ### `ovls.py`
-Command-line entry point: subcommands for status, discover, inspect-prefix, launch, nxm, launcher, manager, shortcuts, install-extension, remove-extension, install, verify, uninstall, package, check-fs, diagnostics, ipc, plus compatibility aliases `ping`, `get-state`, and `ipc-status` for `ipc ping`, `ipc get-state`, and `ipc status`.
+Command-line entry point: subcommands for status, discover, inspect-prefix, launch, nxm, launcher, manager, shortcuts, install-extension, remove-extension, install, verify, uninstall, package, check-fs, and diagnostics. The former `ipc` subcommand and its `ping`/`get-state`/`ipc-status` aliases were removed in OVLS 0.4.0.
 
 ### `package.py`
 Autonomous package management: stages and verifies the new source tree, backs up managed files and restores them on failure, manages MANIFEST.sha256, handles transactional install/update/verify/uninstall, and calls `installer.py` for components inside the prefix.
@@ -71,10 +68,10 @@ Steam discovery: finds Steam root, library folders, installed games and Vortex p
 ## Extension Components
 
 ### `info.json`
-Extension manifest: name (`ovls-json-ipc-v2`), version, description.
+Extension manifest: id (`ovls-json-ipc-v2`, retained as the installed plugin identifier for compatibility), name, version, description.
 
 ### `index.js`
-Extension logic: initializes IPC context, handles JSON IPC requests (ping, getState), manages dedup records, handles ACK flow.
+Extension logic: initializes the extension, detects the deployment-failure notification and offers/applies the staging-folder fix through the Vortex API. File-based JSON IPC was removed in OVLS 0.4.0.
 
 ## Installer Components
 
@@ -90,12 +87,12 @@ Installer package README: installation instructions and component overview.
 ## Data Flow
 
 ```
-External Linux Support (Python)
-        ↕ JSON IPC (file-based)
-Vortex Extension (JavaScript, inside Vortex)
-        ↕
-Official Vortex application
+External Linux Support (Python)   — independent of —   Vortex Extension (JavaScript, inside Vortex)
+                                                              ↕
+                                                    Official Vortex application
 ```
+
+There is no IPC, request/response, ACK or shared IPC directory between the two components.
 
 ## Installation Layout
 

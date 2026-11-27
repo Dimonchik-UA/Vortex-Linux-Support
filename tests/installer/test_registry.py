@@ -127,14 +127,14 @@ class RegistryRepairTest(PrefixCase):
         prefix, _app, system_reg = self.make_prefix()
         registry.ensure_uninstall_key(prefix)
         before = system_reg.read_bytes()
-        backups = sorted(system_reg.parent.glob("system.reg.ovls-backup-*"))
+        backups = sorted(system_reg.parent.glob("system.reg.ovls-backup"))
 
         result = registry.ensure_uninstall_key(prefix)
 
         self.assertEqual(result["action"], "ok")
         self.assertIsNone(result["backup"])
         self.assertEqual(system_reg.read_bytes(), before)
-        self.assertEqual(sorted(system_reg.parent.glob("system.reg.ovls-backup-*")), backups)
+        self.assertEqual(sorted(system_reg.parent.glob("system.reg.ovls-backup")), backups)
 
     def test_missing_value_is_added(self):
         text = SYSTEM_REG_TEMPLATE + (
@@ -234,13 +234,13 @@ class RegistryInstallerTest(PrefixCase):
         first = installer.install(str(prefix), str(SOURCE))
         self.assertEqual(first["vortex_registry"]["action"], "created")
         after_first = system_reg.read_bytes()
-        backups = sorted(system_reg.parent.glob("system.reg.ovls-backup-*"))
+        backups = sorted(system_reg.parent.glob("system.reg.ovls-backup"))
         self.assertEqual(len(backups), 1)
 
         second = installer.install(str(prefix), str(SOURCE))
         self.assertEqual(second["vortex_registry"]["action"], "ok")
         self.assertEqual(system_reg.read_bytes(), after_first)
-        self.assertEqual(sorted(system_reg.parent.glob("system.reg.ovls-backup-*")), backups)
+        self.assertEqual(sorted(system_reg.parent.glob("system.reg.ovls-backup")), backups)
 
         # An "update" is a normal install run over the newer package; it must
         # not remove or rewrite the Vortex registration.
@@ -284,7 +284,7 @@ class RegistryFailureTest(PrefixCase):
 
         self.assertIn("Cannot back up", str(caught.exception))
         self.assertEqual(system_reg.read_bytes(), before)
-        self.assertEqual(list(system_reg.parent.glob("system.reg.ovls-backup-*")), [])
+        self.assertEqual(list(system_reg.parent.glob("system.reg.ovls-backup")), [])
         self.assertEqual(list(system_reg.parent.glob("*.ovls.tmp")), [])
 
     def test_write_failure_keeps_original_registry(self):
@@ -297,7 +297,7 @@ class RegistryFailureTest(PrefixCase):
 
         self.assertEqual(system_reg.read_bytes(), before)
         self.assertEqual(list(system_reg.parent.glob("*.ovls.tmp")), [])
-        leftovers = list(system_reg.parent.glob("system.reg.ovls-backup-*"))
+        leftovers = list(system_reg.parent.glob("system.reg.ovls-backup"))
         self.assertEqual(len(leftovers), 1)
         self.assertEqual(leftovers[0].read_bytes(), before)
 
@@ -314,9 +314,32 @@ class RegistryFailureTest(PrefixCase):
         self.assertIn("verification failed", str(caught.exception))
         self.assertEqual(system_reg.read_bytes(), before)
         self.assertEqual(registry.read_state(prefix)["status"], "missing_key")
-        backups = list(system_reg.parent.glob("system.reg.ovls-backup-*"))
+        backups = list(system_reg.parent.glob("system.reg.ovls-backup"))
         self.assertEqual(len(backups), 1)
         self.assertEqual(backups[0].read_bytes(), before)
+
+
+class RegistryBackupLifecycleTest(PrefixCase):
+    def test_repeated_standalone_repairs_keep_one_backup_file(self):
+        prefix, _app, system_reg = self.make_prefix()
+        original = system_reg.read_bytes()
+        for _ in range(4):
+            registry.ensure_uninstall_key(prefix)
+            system_reg.write_bytes(original)
+
+        backups = sorted(system_reg.parent.glob("system.reg.ovls-backup*"))
+        self.assertEqual([p.name for p in backups], ["system.reg.ovls-backup"])
+        self.assertEqual(backups[0].read_bytes(), original)
+
+    def test_snapshot_backup_lands_in_given_directory(self):
+        prefix, _app, system_reg = self.make_prefix()
+        snapshot = self.root / "snapshot" / "registry"
+
+        result = registry.ensure_uninstall_key(prefix, backup_dir=snapshot)
+
+        self.assertEqual(Path(result["backup"]), snapshot / "system.reg.ovls-backup")
+        self.assertEqual(sorted(p.name for p in snapshot.iterdir()), ["system.reg.ovls-backup"])
+        self.assertEqual(list(system_reg.parent.glob("system.reg.ovls-backup*")), [])
 
 
 if __name__ == "__main__":
