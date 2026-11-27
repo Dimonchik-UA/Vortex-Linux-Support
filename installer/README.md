@@ -8,6 +8,7 @@ This folder contains everything needed to install OVLS Linux Support on a SteamO
 |------|---------|
 | `install.sh` | Entry point. Starts the OVLS package manager (`ovls.py package ...`). |
 | `OVLS Installer.desktop` | Desktop shortcut that launches `install.sh`. Double-click or run from terminal. |
+| `OVLS - GitHub Repository.desktop` | Shortcut that opens the project's GitHub repository. |
 | `README.md` | This file. |
 | `ovls/` | OVLS Python code and Vortex Extension files. Contains `ovls.py` and subdirectories. |
 
@@ -31,7 +32,7 @@ The OVLS Manager appears in the `Utility;` category of your application menu.
 - Steam installed
 - Official Vortex installed in a Proton prefix
 - **DW-Proton Latest and Proton-GE Latest** — both recommended for use with OVLS, not required (case-insensitive GE-Proton name match: starts with `GE-Proton` or contains `Proton-GE`); both worked normally with Vortex in our tests
-- **Any other installed Proton** — works; OVLS honours the tool selected in Steam
+- **Any other installed Proton** — works; OVLS honours the tool selected in Steam, or the installed tool recorded in `compatdata/<appid>/config_info` when there is no Steam selection
 - Python 3
 - `kdialog` or `zenity` (for graphical dialogs; CLI works without them)
 
@@ -41,7 +42,7 @@ The OVLS Manager appears in the `Utility;` category of your application menu.
 2. Make sure the prefix is writable.
 3. Close Vortex before installing. The installer will refuse to proceed if Vortex is running.
 
-Install searches for real Vortex installations: the saved prefix, the legacy location `~/Windows/prefix`, and every `<Steam root>/steamapps/compatdata/<appid>` that actually contains `Vortex.exe`, including roots in additional Steam libraries that are present and mounted. One match is used automatically; several matches show a list to choose from; if none is found, the graphical installer opens a directory chooser and validates the folder you pick. You can always pass `--prefix /path/to/compatdata` explicitly. `Change prefix` in the Manager is separate and always opens the chooser.
+Install searches for real Vortex installations: the saved prefix, the legacy location `~/Windows/prefix`, and every `<Steam root>/steamapps/compatdata/<appid>` that contains both `pfx/drive_c/users/` and `pfx/drive_c/Program Files/Vortex/Vortex.exe`, including roots in additional Steam libraries that are present and mounted. One match is used automatically; several matches show a list to choose from; if none is found, the graphical installer opens a directory chooser and validates the folder you pick. You can always pass `--prefix /path/to/compatdata` explicitly. `Change prefix` in the Manager is separate and always opens the chooser.
 
 ## Installation
 
@@ -86,19 +87,26 @@ This checks the installed copy, extension, NXM handler, and shortcuts.
 
 1. Run `install.sh` and choose **Uninstall**.
    Or use the OVLS Manager from the application menu.
-2. Uninstall removes only OVLS-owned files: the installed copy, shortcuts, the NXM handler, and the OVLS Extension (`info.json`, `index.js`, `host.json`) from the Vortex plugin directory. It also removes leftover data of the former JSON IPC channel (`OVLS_IPC_V2` in the Vortex folder) that older OVLS versions created; other files in that folder are kept.
+2. Uninstall removes only OVLS-owned files: the installed copy, shortcuts, the NXM handler and its state file, the saved prefix setting, OVLS logs with their rotated copies, and the OVLS Extension (`info.json`, `index.js`, `host.json`) from the Vortex plugin directory. It also removes leftover data of the former JSON IPC channel (`OVLS_IPC_V2` in the Vortex folder) that older OVLS versions created; other files in that folder are kept.
 3. If the selected prefix contains Vortex but no OVLS Extension, uninstall is blocked and all OVLS components are kept.
 4. The following are **not** removed:
    - Vortex and its prefix
    - Games, mods, and staging folders
    - User settings
+   - The Vortex uninstall registration and Steam's `config/libraryfolders.vdf`
+   - Registry backups: `backups/<timestamp>/registry/` after a package install repair, or a standalone `system.reg.ovls-backup` in the prefix after a direct `ovls.py install` repair without `--backup`
+   - A `mimeapps.list.ovls-backup-<UTC>` recovery copy in `~/.config/`, if the uninstall fallback created one
    - `backups/` in `~/.local/share/ovls`
+
+The two registry backups come from different paths and are not guaranteed for every install. A package install passes a timestamped backup root, so `installer.py` places the registry copy in `backups/<timestamp>/registry/` only when `registry.ensure_uninstall_key()` actually creates or corrects the Vortex uninstall key. A direct `ovls.py install` passes no backup root unless `--backup` is given: without `--backup`, a repair writes `system.reg.ovls-backup` next to `system.reg` in the prefix; with `--backup`, the copy goes to `<backup-root>/<timestamp>/registry/`. No registry backup is made when the registration is already correct or on a dry run.
+
+NXM handler installation does not create a `mimeapps.list` backup. A `mimeapps.list.ovls-backup-<UTC>` copy is made only by `desktop._remove_default_entry()` immediately before that fallback edits `mimeapps.list` directly during uninstall, and only when OVLS is the current default handler and restoring the previous handler did not succeed. If OVLS is not the current default, no backup is made. This copy is a recovery point: OVLS does not restore `mimeapps.list` from it automatically. Restoring the previous handler is a separate mechanism that uses the saved handler name, checks that its `.desktop` file exists, and switches the default with `xdg-mime`.
 
 ## Diagnostics
 
 - Run `bash install.sh verify` to check the installed copy state, extension, NXM, and shortcuts.
 - Vortex log: `<prefix>/pfx/drive_c/users/<user>/AppData/Roaming/Vortex/vortex.log`. OVLS extension lines start with `OVLS9`.
-- If Vortex shows double window controls, a white band, interface shift, or cursor-click offset, select DW-Proton or Proton-GE for the Vortex shortcut in Steam (or pass `--proton`). They are recommendations, not requirements.
+- If Vortex shows double window controls, a white band, interface shift, or cursor-click offset, select DW-Proton or Proton-GE for the Vortex shortcut in Steam. For a direct `ovls.py launch` call, `--proton` can override the tool. They are recommendations, not requirements.
 
 ## Known limitations
 

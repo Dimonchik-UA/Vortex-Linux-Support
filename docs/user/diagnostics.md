@@ -32,7 +32,7 @@ If any check fails, OVLS Manager will show an error message explaining what is w
 
 ## Extension `host.json` states
 
-`verify` reports the Extension state as one of the following. The two damaged states are **not** repaired by Install / Update; the installer leaves the file untouched and reports a warning instead of "Components updated".
+`verify` reports the Extension state as one of the following. The three exceptional `host.json` states — `stale_host`, `invalid_host_file`, and `host_map_unrepairable` — are **not** repaired by Install / Update; OVLS leaves the existing file untouched and shows an attention message instead of "Components updated". The `host_map_issues` value is a count of damaged volume entries, not a separate state.
 
 | State | Meaning | What to do |
 |-------|---------|------------|
@@ -69,7 +69,7 @@ Observed on Proton 11.0, Proton Hotfix, and Proton Experimental in SteamOS Deskt
 - Vortex interface visually shifted downward.
 - Cursor position does not match click coordinates (click registers below visible cursor).
 
-**Solution:** Select DW-Proton or Proton-GE in Steam for the Vortex shortcut, or pass `--proton /path/to/proton` to OVLS. OVLS honours your selection; these variants did not show the issue in testing. The cause is not determined.
+**Solution:** Select DW-Proton or Proton-GE in Steam for the Vortex shortcut. For a direct `ovls.py launch` call, you can instead pass `--proton /path/to/proton`; the desktop shortcut and Manager do not accept that option. OVLS honours your selection; these variants did not show the issue in testing. The cause is not determined.
 
 ### "Mods can't be deployed."
 

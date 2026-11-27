@@ -8,6 +8,7 @@ OVLS is distributed as a standalone installer folder (`OVLS Installer`). The pac
 
 - `install.sh` — entry point script
 - `OVLS Installer.desktop` — desktop shortcut
+- `OVLS - GitHub Repository.desktop` — shortcut to the project repository
 - `README.md` — installer documentation
 - `ovls/` — Python code and Vortex Extension files
 
@@ -48,10 +49,12 @@ Update is transactional: new files are staged first, previous files are backed u
 
 Run `bash install.sh uninstall` or use OVLS Manager (Uninstall). Uninstall:
 
-- Removes OVLS-owned files (installed copy, shortcuts, NXM handler)
-- Removes Extension from the Proton prefix plugin directory (`info.json`, `index.js`)
+- Removes OVLS-owned files (installed copy, saved prefix config, shortcuts, NXM handler, OVLS logs with their rotated copies)
+- Removes Extension from the Proton prefix plugin directory (`info.json`, `index.js`, `host.json`)
 - Removes leftover data of the former JSON IPC channel (`OVLS_IPC_V2` in the Vortex folder), keeping any other files there
-- Does **not** remove: Vortex, prefix, games, mods, staging folders, user settings, `backups/` in `~/.local/share/ovls/`
+- Does **not** remove: Vortex, prefix, games, mods, staging folders, user settings, the Vortex uninstall registration, Steam's `config/libraryfolders.vdf`, registry backups (in `<backup-root>/registry/` after a package install repair, or as `<prefix>/pfx/system.reg.ovls-backup` after a direct `ovls.py install` repair without `--backup`), a `mimeapps.list.ovls-backup-<UTC>` recovery copy in `~/.config/` if the uninstall fallback created one, or `backups/` in `~/.local/share/ovls/`
+
+NXM handler registration does not create a `mimeapps.list` backup. A `mimeapps.list.ovls-backup-<UTC>` copy is made only by `desktop._remove_default_entry()` immediately before that fallback edits `mimeapps.list` directly during uninstall. The fallback runs only when OVLS is the current default handler and restoring the previous one did not succeed; if OVLS is not the current default, no backup is made. This copy is a recovery point: OVLS does not restore `mimeapps.list` from it automatically. Restoring the previous handler is a separate mechanism that uses the saved handler name, checks that its `.desktop` file exists, and switches the default with `xdg-mime`.
 
 After uninstall, OVLS Manager closes (its installed copy is removed). Reinstall with `bash install.sh install`.
 

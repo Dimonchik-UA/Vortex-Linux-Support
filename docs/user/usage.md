@@ -10,7 +10,7 @@ OVLS installs a desktop shortcut (`ovls-vortex.desktop`) both in the application
 2. It launches the official Windows `Vortex.exe` through the Proton tool resolved for the Vortex prefix: the explicit Steam selection in `config/config.vdf → CompatToolMapping` first, then — when there is no entry for that appid — the tool recorded in `compatdata/<appid>/config_info`. A tool found there is used only if it is installed (its directory contains `proton`); OVLS only reads these Steam files. Only if neither source yields an installed Proton does it prefer a recommended tool (DW-Proton or Proton-GE), then any other installed Proton. No specific Proton version is required. There is no separate DW-Proton branch: it is one of the recommended names used only in this last fallback.
 3. The Vortex Extension loads inside Vortex. It checks the staging folder and applies the staging fix through Vortex's internal API (`SET_MOD_INSTALL_PATH`); there is no IPC channel or connection back to OVLS.
 
-You do not need to pass `--proton` manually: OVLS uses the Proton selected in Steam for this prefix, or the installed tool recorded in the prefix when Steam has no selection. `--proton` still overrides the choice explicitly. DW-Proton Latest and Proton-GE Latest are the compatibility recommendations — both worked normally with Vortex in our tests — and the automatic choice uses them only when no installed tool can be resolved from Steam. Proton 11.0, Proton Hotfix, and Proton Experimental show double window controls, a white band, interface shift, and cursor-click offset in testing, but OVLS will still launch with them.
+You do not need to pass `--proton` manually: OVLS uses the Proton selected in Steam for this prefix, or the installed tool recorded in the prefix when Steam has no selection. The `--proton` option is available only for direct `ovls.py launch` and `ovls.py nxm` calls; the desktop shortcut, Manager and `install.sh` do not accept it. DW-Proton Latest and Proton-GE Latest are the compatibility recommendations — both worked normally with Vortex in our tests — and the automatic choice uses them only when no installed tool can be resolved from Steam. Proton 11.0, Proton Hotfix, and Proton Experimental show double window controls, a white band, interface shift, and cursor-click offset in testing, but OVLS will still launch with them.
 
 ## Opening OVLS Manager
 
@@ -60,9 +60,11 @@ Use this action to check the health of your OVLS installation. Verify checks:
 
 Use this action to remove OVLS components. Uninstall removes only OVLS-owned files:
 
+- The installed OVLS code copy, including `MANIFEST.sha256`, `VERSION`, and the saved prefix setting (`~/.config/ovls/config.json`)
 - The installed OVLS Extension from the Vortex plugin directory in the selected prefix (only OVLS-owned files: `info.json`, `index.js`, and generated `host.json`)
-- The NXM handler
+- The NXM handler and its state file
 - Desktop shortcuts
+- OVLS logs and their rotated copies (`ovls.log`, `launch.log`, `nxm.log`, `.1`, `.2`)
 - Leftover data of the former JSON IPC channel (`OVLS_IPC_V2` in the Vortex folder of the selected prefix), if an older OVLS version created it; other files in that folder are kept
 
 Vortex, its prefix, user mods, staging folders, user settings, and `backups/` in `~/.local/share/ovls` are **not** removed.
@@ -113,11 +115,11 @@ A valid prefix must contain both `pfx/drive_c/users/` and `pfx/drive_c/Program F
 
 Prefixes in additional Steam libraries can be detected when those libraries are present and mounted. A temporarily unmounted library does not make an installed prefix invalid on disk, but Install / Update may not be able to rebuild its staging target until the library is mounted again; see [Staging folder](staging.md) and [Diagnostics](diagnostics.md).
 
-DW-Proton Latest and Proton-GE Latest are both recommended for use with OVLS; both worked normally with Vortex in our tests. Neither is required, neither is preferred over the other, and neither is used to detect the prefix. GE-Proton is recognised by a case-insensitive directory name that starts with `GE-Proton` or contains `Proton-GE`.
+DW-Proton Latest and Proton-GE Latest are both recommended for use with OVLS; both worked normally with Vortex in our tests. Neither is required, and neither is used to detect the prefix. In the automatic fallback they form the preferred group and names containing `latest` are preferred; this does not replace a tool selected in Steam. GE-Proton is recognised by a case-insensitive directory name that starts with `GE-Proton` or contains `Proton-GE`.
 
 ## Proton selection
 
-OVLS resolves the launch tool in this order: the explicit Steam selection for the prefix in `config/config.vdf → CompatToolMapping`; if that entry is absent, the tool recorded in `compatdata/<appid>/config_info` — the tool Steam used to create the prefix. A tool from `config_info` is accepted only when it is installed (its directory contains `proton`), and OVLS only reads these Steam files. Only when neither source gives an installed tool does OVLS prefer **DW-Proton** or **Proton-GE** (including "latest" builds), then any other installed Proton; it never blocks the launch for this reason. Proton 11.0, Proton Hotfix, and Proton Experimental show double window controls, a white band, interface shift, and cursor-click offset in testing but are still allowed. GE-Proton matching is case-insensitive and requires a directory name starting with `GE-Proton` or containing `Proton-GE`. Use `--proton` to override the choice.
+OVLS resolves the launch tool in this order: the explicit Steam selection for the prefix in `config/config.vdf → CompatToolMapping`; if that entry is absent, the tool recorded in `compatdata/<appid>/config_info` — the tool Steam used to create the prefix. A tool from `config_info` is accepted only when it is installed (its directory contains `proton`), and OVLS only reads these Steam files. Only when neither source gives an installed tool does OVLS prefer **DW-Proton** or **Proton-GE** (including "latest" builds), then any other installed Proton; it never blocks the launch for this reason. Proton 11.0, Proton Hotfix, and Proton Experimental show double window controls, a white band, interface shift, and cursor-click offset in testing but are still allowed. GE-Proton matching is case-insensitive and requires a directory name starting with `GE-Proton` or containing `Proton-GE`. For direct CLI calls, `ovls.py launch` and `ovls.py nxm` also accept `--proton` to override the choice; the desktop shortcut and Manager do not expose it.
 
 You do not need to pass `--proton` manually when launching Vortex through OVLS.
 

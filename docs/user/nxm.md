@@ -21,7 +21,7 @@ OVLS installs three files:
 | `ovls-nxm.desktop` | `~/.local/share/applications/ovls-nxm.desktop` | Desktop entry declaring the `nxm://` protocol handler (hidden from the applications menu; `NoDisplay=true`) |
 | `nxm-previous-default` | `~/.local/share/ovls/nxm-previous-default` | Remembers your previous `nxm://` handler so OVLS can restore it on uninstall |
 
-Registration uses `xdg-mime default`. If no previous `nxm://` handler existed, uninstall removes only OVLS's entry from your `mimeapps.list` and leaves everything else intact.
+Registration uses `xdg-mime default` and does not create a `mimeapps.list` backup. A `mimeapps.list.ovls-backup-<UTC>` copy is made only by the uninstall fallback, when OVLS is the current default handler and restoring the previous handler did not succeed; if OVLS is not the current default, no backup is made. This copy is a recovery point: OVLS does not restore `mimeapps.list` from it automatically. If no previous `nxm://` handler existed, uninstall removes only OVLS's entry from your `mimeapps.list` and leaves everything else intact.
 
 ## Installing or updating the NXM handler
 
@@ -45,10 +45,10 @@ Running **Uninstall** in OVLS Manager or `bash install.sh uninstall` removes:
 - `~/.local/share/applications/ovls-nxm.desktop` (the desktop entry)
 - `~/.local/share/ovls/nxm-previous-default` (the state file)
 
-If OVLS was previously your default `nxm://` handler, uninstall restores your previous default handler. If OVLS was not the default, it simply removes its entry from `mimeapps.list`.
+If OVLS was previously your default `nxm://` handler, uninstall tries to restore it, but only if its name is still saved in `nxm-previous-default`, the corresponding `.desktop` file exists, and switching back with `xdg-mime` succeeds. If any of those conditions fails, OVLS simply removes its own entry from `mimeapps.list` and does not guarantee that the previous handler is restored. If OVLS was not the default, it also just removes its entry. One `mimeapps.list.ovls-backup-*` copy is kept as a recovery point.
 
 ## Known limitations
 
 - OVLS registers `nxm://` only for your desktop user. It does not modify system-wide handler configuration.
 - If another application later registers itself as the default `nxm://` handler, OVLS will no longer receive links. Re-run **Install / Update** to re-register.
-- OVLS does not modify the official Vortex application files; it installs its own Extension into Vortex's plugin directory and provides an external link handler that Vortex communicates with.
+- OVLS does not modify the official Vortex application files; it installs its own Extension into Vortex's plugin directory and provides an external desktop handler that receives an `nxm://` link and launches Vortex with it. The OVLS Extension is not involved in passing NXM links, and there is no two-way IPC channel between the Python side and the Extension.

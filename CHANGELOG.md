@@ -4,7 +4,7 @@ This file records user-facing changes to OVLS. The newest version is listed firs
 
 ## 0.4.0
 
-**Status:** prepared in the working tree; version `0.4.0` is not published yet. The source version is `0.4.0`.
+**Status:** released 2026-11-27 as `v0.4.0`.
 
 Removes the experimental JSON IPC channel and stops uncontrolled log/backup growth. User-facing flows are unchanged.
 

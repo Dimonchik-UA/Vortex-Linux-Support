@@ -16,7 +16,7 @@ OVLS runs on SteamOS/Linux and enables the official Windows version of Vortex to
 | Python 3 | Required | Needed to run OVLS |
 | kdialog or zenity | Required for GUI | CLI works without either |
 
-Both DW-Proton Latest and Proton-GE Latest are recommended for use with OVLS; both worked normally with Vortex in our tests. These compatibility recommendations do not change the automatic selection order below, do not prefer one over the other, and are not requirements.
+Both DW-Proton Latest and Proton-GE Latest are recommended for use with OVLS; both worked normally with Vortex in our tests. These compatibility recommendations are not requirements and are not used to detect the prefix. In automatic selection they form the preferred fallback group only when neither Steam nor the prefix records an installed tool; the order is described below.
 
 ## Proton selection
 
@@ -110,11 +110,19 @@ If neither is available, OVLS falls back to command-line output. The command-lin
 
 ## Root access
 
-OVLS does **not** require root access. All files are installed into your user data directory (typically `~/.local/share/ovls/`).
+OVLS does **not** require root access. Its files are spread across several user-owned locations; the XDG variables use the defaults shown in parentheses when unset.
+
+- **Installed OVLS files** — `$XDG_DATA_HOME/ovls` (default `~/.local/share/ovls/`): the managed copy whose file list is recorded in `MANIFEST.sha256` — the Python code, `ovls/extension/`, `ovls/assets/ovls.png`, `install.sh` and `README.md`. The manifest lists only these managed files, not every OVLS file physically located in `$XDG_DATA_HOME/ovls`. `MANIFEST.sha256` and `VERSION` are generated in the same directory during installation. Additional files described below also live there, but are not part of the managed copy.
+- **User settings** — `$XDG_CONFIG_HOME/ovls/config.json` (default `~/.config/ovls/config.json`) stores the selected Proton prefix.
+- **State** — `$XDG_STATE_HOME/ovls/` (default `~/.local/state/ovls/`) holds `launch.log`.
+- **Logs** — `ovls.log` is written next to the installed `ovls.py` (for the release package, `$XDG_DATA_HOME/ovls/ovls/ovls.log`), `launch.log` in `$XDG_STATE_HOME/ovls/`, and `nxm.log` in `$XDG_DATA_HOME/ovls/`. Each keeps two rotated copies.
+- **Shortcuts and NXM integration** — application entries in `$XDG_DATA_HOME/applications/` (`ovls-vortex.desktop`, `ovls-manager.desktop`, `ovls-nxm.desktop`), wrappers in `$XDG_DATA_HOME/ovls/bin/`, the NXM wrapper `ovls-nxm` and `nxm-previous-default` in `$XDG_DATA_HOME/ovls/`, and the icon in `$XDG_DATA_HOME/icons/hicolor/256x256/apps/ovls.png`. The wrappers and NXM files are physically inside the data directory but are not listed in `MANIFEST.sha256`. The desktop copy of `ovls-vortex.desktop` goes to `XDG_DESKTOP_DIR` (default `~/Desktop`).
+- **Extension** — inside the selected Proton prefix at `<prefix>/pfx/drive_c/users/<profile>/AppData/Roaming/Vortex/plugins/ovls-json-ipc-v2/` (`info.json`, `index.js` and generated `host.json`).
+- **Backups** — `$XDG_DATA_HOME/ovls/backups/<timestamp>/` may contain `app/`, `extension/` and `registry/`; these subdirectories are conditional, are not guaranteed after every installation, and may exist at the same time.
 
 ## What OVLS does not require
 
 - OVLS does not modify the official Vortex executable or settings files; it installs its own Extension into Vortex's plugin directory.
 - OVLS does not modify your game files or mods.
-- OVLS does not modify your Steam installation.
-- OVLS does not require network access beyond what Vortex itself uses.
+- OVLS does not modify the host Steam installation; it may create Steam/config/libraryfolders.vdf inside the Proton prefix if that file is missing.
+- Core install, launch, and NXM handling do not require network access. OVLS Manager optionally checks GitHub Releases in the background and, when you confirm an update, downloads and verifies the release archive over HTTPS.

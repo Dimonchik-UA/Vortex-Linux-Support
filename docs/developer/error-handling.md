@@ -24,12 +24,12 @@ Component state recovery is not implemented. The Extension re-evaluates the curr
 
 ## Logging
 
-OVLS writes three log files of its own. Each is limited to a 1 MB current file and two rotated copies (`.1`, `.2`), so it never exceeds about 3 MB:
+OVLS writes three log files of its own. Each is limited to a 1 MB current file and two rotated copies (`.1`, `.2`), so it never exceeds about 3 MB. On rollover the current file becomes `.1`, `.1` becomes `.2`, and the previous `.2` is deleted; older output is discarded automatically rather than kept as extra history:
 - `~/.local/share/ovls/ovls/ovls.log` — package manager log (rotated; no records are written at present)
 - `$XDG_STATE_HOME/ovls/launch.log` — Vortex launch and Proton output, written by the launcher
 - `$XDG_DATA_HOME/ovls/nxm.log` — Vortex output for `nxm://` links
 
-Proton output goes to a detached `logpump.py` process that rotates the file while Vortex is running. It exits when Vortex closes its output. There is no fallback to `/tmp`: if the log directory cannot be written, Vortex is started without a log and the launcher prints a message.
+Proton output goes to a detached `logpump.py` process that rotates the file while Vortex is running. It exits when Vortex closes its output. There is no fallback to `/tmp`: if the log directory cannot be written, Vortex is started without a log. In that case `proton.spawn_vortex()` prints `NXM handler: log disabled (log directory is not writable); launching Vortex anyway` to stderr; the launcher does not show a separate dialog for this message.
 
 Uninstall removes `ovls.log`, `launch.log`, `nxm.log` and their rotated copies. Other files in those directories are kept.
 

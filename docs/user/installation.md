@@ -10,6 +10,7 @@ After downloading or building the publication package, you will have a folder na
 |------|---------|
 | `install.sh` | Entry point script. Starts the OVLS package manager. |
 | `OVLS Installer.desktop` | Desktop shortcut that launches `install.sh`. |
+| `OVLS - GitHub Repository.desktop` | Shortcut that opens the project's GitHub repository. |
 | `README.md` | Short readme for the installer package. |
 | `ovls/` | OVLS Python code and Vortex Extension files. Contains `ovls.py` and subdirectories. |
 
@@ -21,7 +22,7 @@ After downloading or building the publication package, you will have a folder na
 - **Steam** installed
 - **Official Vortex** installed in a Proton prefix
 - **DW-Proton Latest and Proton-GE Latest** — both recommended for use with OVLS, not required (case-insensitive GE-Proton name match: starts with `GE-Proton` or contains `Proton-GE`); both worked normally with Vortex in our tests
-- **Any other installed Proton** — works; OVLS uses the tool selected in Steam or the first available fallback
+- **Any other installed Proton** — works; OVLS first uses the tool selected in Steam via `config/config.vdf → CompatToolMapping`; if there is no entry for that appid, it uses the installed tool recorded in `compatdata/<appid>/config_info`. The fallback is applied only when neither source gives an installed tool.
 - **Python 3**
 - **kdialog** or **zenity** (required for graphical dialogs; the command-line interface works without them)
 
@@ -82,10 +83,10 @@ This checks that the OVLS copy, Vortex Extension, NXM handler, and desktop short
 
 ## What gets installed
 
-OVLS installs to your user data directory (typically `~/.local/share/ovls/`). It creates:
+The installed copy is placed in `$XDG_DATA_HOME/ovls` (default `~/.local/share/ovls/`). It contains the managed OVLS Python code, the bundled Vortex Extension files, and `MANIFEST.sha256` listing the files of the managed installed copy (used for verification and safe removal), plus `VERSION`. The manifest does not list other OVLS files that may physically reside in the same directory.
 
-- The OVLS Python code and Vortex Extension files inside the installed copy
-- A `MANIFEST.sha256` file listing every file OVLS owns (used for verification and safe removal)
+OVLS also creates integration files **outside** the installed copy:
+
 - Desktop shortcuts for launching Vortex and opening OVLS Manager
 - An NXM handler so `nxm://` links open in the official Vortex
 
@@ -111,7 +112,7 @@ To update OVLS to a new version:
 2. Copy it to any location.
 3. Run `bash install.sh` and choose **Install / Update**.
 
-The update refreshes the OVLS copy and its components. Inside the Vortex prefix it only touches OVLS-owned Extension files, repairs the Vortex uninstall key when missing or broken, and adds `libraryfolders.vdf` if missing. Games, mods, and Vortex settings are not changed.
+The update refreshes the OVLS copy and its components. Inside the Vortex prefix it only touches OVLS-owned Extension files, repairs the Vortex uninstall key when missing or broken, adds `libraryfolders.vdf` if missing, and removes leftover `OVLS_IPC_V2` data created by older OVLS versions as legacy cleanup — not as an active IPC channel. Games, mods, and Vortex settings are not changed.
 
 Alternatively, use the OVLS Manager from the application menu (Install / Update). It may check GitHub Releases for updates:
 - If you decline the GitHub update, Manager can continue with a normal update from the already installed copy.
@@ -139,17 +140,53 @@ Uninstall also removes the OVLS launch and NXM logs with their rotated copies (`
 
 ## Directory layout
 
-After installation, OVLS lives in your user data directory (typically `~/.local/share/ovls/`). The installed copy mirrors the package layout:
+After installation, the **managed installed copy** is in `$XDG_DATA_HOME/ovls` (default `~/.local/share/ovls/`). Its layout is:
 
 ```
-ovls/
+$XDG_DATA_HOME/ovls/
   install.sh
   README.md
   VERSION
   MANIFEST.sha256
   ovls/*.py
-  ovls/extension/*
-  backups/<timestamp>/{app,extension,registry}
+  ovls/assets/ovls.png
+  ovls/extension/{index.js,info.json}
 ```
 
-The `backups/` directory is kept when OVLS is uninstalled, so you can recover previous versions if needed. It keeps the three most recent snapshots; older ones are removed automatically after a successful update or install with `--backup`.
+`VERSION` and `MANIFEST.sha256` are generated during installation; every other path in this block comes from package staging.
+
+### Additional files under the OVLS data directory
+
+These files live inside `$XDG_DATA_HOME/ovls`, but are created by separate mechanisms and are not part of the managed copy in `MANIFEST.sha256`:
+
+- `$XDG_DATA_HOME/ovls/bin/ovls-vortex` — wrapper that launches the official Vortex through Proton.
+- `$XDG_DATA_HOME/ovls/bin/ovls-manager` — wrapper that opens OVLS Manager.
+- `$XDG_DATA_HOME/ovls/ovls.log` — OVLS log written next to the installed `ovls.py` (the path shown is the one used by the release package).
+- `$XDG_DATA_HOME/ovls/ovls-nxm` — wrapper that passes an `nxm://` URI to Vortex.
+- `$XDG_DATA_HOME/ovls/nxm-previous-default` — saved previous `nxm://` handler; restoration on uninstall is possible only when the conditions described in the NXM section (`docs/user/nxm.md`) are met.
+
+### Integration files outside the OVLS data directory
+
+- `$XDG_DATA_HOME/applications/ovls-vortex.desktop` (applications menu; also copied to `XDG_DESKTOP_DIR`, default `~/Desktop`)
+- `$XDG_DATA_HOME/applications/ovls-manager.desktop` (applications menu only)
+- `$XDG_DATA_HOME/applications/ovls-nxm.desktop` (hidden NXM protocol-handler entry)
+- `$XDG_DATA_HOME/icons/hicolor/256x256/apps/ovls.png` (OVLS icon)
+- `$XDG_CONFIG_HOME/ovls/config.json` (selected Proton prefix; default `~/.config/ovls/config.json`)
+- `$XDG_CONFIG_HOME/mimeapps.list` (NXM handler registration)
+- `$XDG_STATE_HOME/ovls/launch.log` (default `~/.local/state/ovls/launch.log`) and `$XDG_DATA_HOME/ovls/nxm.log`
+- `<prefix>/pfx/drive_c/users/<profile>/AppData/Roaming/Vortex/plugins/ovls-json-ipc-v2/{info.json,index.js,host.json}` (Extension inside the selected Proton prefix; `host.json` is generated on install)
+
+### Backups
+
+Backup copies are stored separately from the managed installed copy:
+
+```
+$XDG_DATA_HOME/ovls/backups/<timestamp>/
+  app/         (when the installed copy receives changed files)
+  extension/   (only when Extension files are backed up)
+  registry/    (only when the Vortex registry is repaired)
+```
+
+These subdirectories are conditional: none is guaranteed after every installation, and more than one can exist in the same snapshot.
+
+The `backups/` directory is kept when OVLS is uninstalled, so you can recover previous versions if needed. It keeps the three most recent snapshots; older ones are removed automatically once `copy_tree()` has completed successfully, not necessarily after the whole install or update finishes. The separate CLI command `ovls.py install --backup` uses the same retention limit. `install.sh` does not accept that flag: `package install`/`update` creates a snapshot only when the installed copy actually receives changed files; `dry_run`, `unchanged`, and self-refresh from the installed copy do not create one.
