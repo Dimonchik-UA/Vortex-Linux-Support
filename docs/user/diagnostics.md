@@ -12,11 +12,14 @@ bash install.sh verify
 
 This checks:
 
-- **Installed copy**: All OVLS files are present and unchanged (verified against `MANIFEST.sha256`)
-- **Desktop shortcuts**: All OVLS shortcuts exist and point to the correct files
-- **NXM handler**: The `nxm://` protocol handler is registered correctly
-- **Vortex Extension**: The extension is installed in your Proton prefix
-- **Prefix**: Your Proton prefix is accessible and contains Vortex.exe
+- **Prefix**: the selected prefix is accessible and contains Vortex.exe
+- **OVLS version**: the version of the installed OVLS copy (`unknown` if unavailable)
+- **Code copy**: all OVLS files are present and unchanged (verified against `MANIFEST.sha256`)
+- **Shortcuts**: all OVLS desktop shortcuts exist and point to the correct files
+- **Extension**: the Vortex Extension is installed in your prefix
+- **Vortex uninstall key**: the Vortex uninstall key in the prefix is present and correct
+- **NXM handler**: the `nxm://` protocol handler is registered correctly
+- **Steam library**: shown in OVLS Manager only; the installer's Verify does not show this line
 
 For most problems, run **Install / Update** from OVLS Manager or `bash install.sh update` to repair the installation. This is **not** guaranteed for the Extension `host.json` states described below.
 
@@ -54,7 +57,7 @@ OVLS writes logs to the following locations:
 | Vortex log | `<prefix>/pfx/drive_c/users/<user>/AppData/Roaming/Vortex/vortex.log` | Vortex application log; OVLS extension lines start with `OVLS9` |
 | OVLS launch log | `$XDG_STATE_HOME/ovls/launch.log` (typically `~/.local/state/ovls/launch.log`) | Vortex launch and Proton output |
 | OVLS NXM log | `$XDG_DATA_HOME/ovls/nxm.log` (typically `~/.local/share/ovls/nxm.log`) | Vortex output for `nxm://` links |
-| OVLS package log | `~/.local/share/ovls/ovls/ovls.log` | OVLS package manager log (currently no records) |
+| OVLS package log | `$XDG_DATA_HOME/ovls/ovls/ovls.log` (default `~/.local/share/ovls/ovls/ovls.log` when `XDG_DATA_HOME` is unset) | OVLS package manager log (currently no records) |
 
 The OVLS launch and NXM logs are limited to 1 MB each, with two rotated copies (`launch.log.1`, `launch.log.2`, and the same for `nxm.log`). Older output is discarded automatically. Uninstall removes all OVLS logs and their rotated copies.
 
@@ -77,7 +80,7 @@ This means your staging folder is on a different filesystem volume than your gam
 
 ### Vortex.exe not found in prefix
 
-OVLS could not find `Vortex.exe` at `pfx/drive_c/Program Files/Vortex/Vortex.exe` in your selected prefix. OVLS accepts a prefix from the config, a known location, or the Steam `compatdata/*` scan in the main root and in mounted additional libraries only when both `pfx/drive_c/users/` and `Vortex.exe` are present. If nothing is found, Install offers a directory chooser; **Change prefix** always opens it. **Solution:** Install the official Vortex by adding `vortex-setup-*.exe` as a non-Steam game and running it once with a Proton compatibility tool (DW-Proton or GE-Proton are recommended, but not required), or pass `--prefix /path/to/compatdata` explicitly. If another valid prefix is already installed, open **Change prefix** and select its directory manually. **Change prefix** opens a system dialog for manual directory selection and does not use the automatic list of found prefixes.
+OVLS could not find `Vortex.exe` at `pfx/drive_c/Program Files/Vortex/Vortex.exe` in your selected prefix. OVLS accepts a prefix from the config, a known location, or the Steam `compatdata/*` scan in the main root and in mounted additional libraries only when both `pfx/drive_c/users/` and `Vortex.exe` are present. If nothing is found, Install offers a directory chooser; **Select Vortex prefix (pfx)** always opens it. **Solution:** Install the official Vortex by adding `vortex-setup-*.exe` as a non-Steam game and running it once with a Proton compatibility tool (DW-Proton or GE-Proton are recommended, but not required), or pass `--prefix /path/to/compatdata` explicitly. If another valid prefix is already installed, open **Select Vortex prefix (pfx)** and select its directory manually. **Select Vortex prefix (pfx)** opens a system dialog for manual directory selection and does not use the automatic list of found prefixes.
 
 ### NXM links do not open in Vortex
 

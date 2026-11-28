@@ -60,7 +60,7 @@ After uninstall, OVLS Manager closes (its installed copy is removed). Reinstall 
 
 ## Extension Lifecycle
 
-The Extension is loaded by Vortex on each launch and re-initialized if the renderer restarts. It performs staging checks and the staging-folder fix exclusively through the Vortex API. No IPC session, `sessionId`, ACK or IPC directory exists in OVLS 0.4.0; the former Stage 9 IPC lifecycle was removed together with the IPC channel.
+The Extension is loaded by Vortex on each launch and re-initialized if the renderer restarts. It performs staging checks and the staging-folder fix exclusively through the Vortex API. Since OVLS 0.4.0, no IPC session, `sessionId`, ACK or IPC directory exists; the former Stage 9 IPC lifecycle was removed together with the IPC channel.
 
 ## Version Compatibility
 

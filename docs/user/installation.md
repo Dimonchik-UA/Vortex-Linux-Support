@@ -37,7 +37,7 @@ The usual way to install official Vortex on SteamOS is to add `vortex-setup-*.ex
 - One Vortex found: its prefix is selected and used automatically, no folder search is required.
 - Several found: the graphical tools show a list of prefix paths and install only into the one you pick; cancelling aborts the installation.
 - None found: OVLS explains how to install Vortex as a non-Steam game and opens a directory chooser so you can find the prefix yourself. On the command line, pass `--prefix /path/to/compatdata`. The chosen directory is validated before installation.
-- **Change prefix** is a separate Manager action: it always opens the directory chooser, even when a valid prefix is configured, and cancelling it leaves the configuration unchanged.
+- **Select Vortex prefix (pfx)** is a separate Manager action: it always opens the directory chooser, even when a valid prefix is configured, and cancelling it leaves the configuration unchanged.
 
 Prefixes in additional Steam libraries (another disk or SD card) are scanned when those libraries are present and mounted. Staging targets for such libraries are included in `host.json` v2. If a library is temporarily unmounted, its existing staging target is retained only while it remains registered in Steam; removing the registration is detected by `verify`.
 
@@ -161,7 +161,7 @@ These files live inside `$XDG_DATA_HOME/ovls`, but are created by separate mecha
 
 - `$XDG_DATA_HOME/ovls/bin/ovls-vortex` — wrapper that launches the official Vortex through Proton.
 - `$XDG_DATA_HOME/ovls/bin/ovls-manager` — wrapper that opens OVLS Manager.
-- `$XDG_DATA_HOME/ovls/ovls.log` — OVLS log written next to the installed `ovls.py` (the path shown is the one used by the release package).
+- `$XDG_DATA_HOME/ovls/ovls/ovls.log` — OVLS log written next to the installed `ovls.py` (the path shown is the one used by the release package).
 - `$XDG_DATA_HOME/ovls/ovls-nxm` — wrapper that passes an `nxm://` URI to Vortex.
 - `$XDG_DATA_HOME/ovls/nxm-previous-default` — saved previous `nxm://` handler; restoration on uninstall is possible only when the conditions described in the NXM section (`docs/user/nxm.md`) are met.
 

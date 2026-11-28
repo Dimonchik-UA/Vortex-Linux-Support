@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="OVLS adds Linux and SteamOS integration for the official Windows version of Vortex Mod Manager through Proton.">
+  <meta name="theme-color" content="#171923">
+  <title>OVLS - Linux Support for Official Vortex</title>
+  <style>
+    :root { color-scheme: dark; --bg:#111318; --panel:#1b1f29; --text:#edf0f6; --muted:#aab2c2; --accent:#9b8cff; --line:#303746; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font:16px/1.65 system-ui,-apple-system,"Segoe UI",sans-serif; }
+    main { width:min(900px,calc(100% - 36px)); margin:0 auto; padding:64px 0 48px; }
+    .eyebrow { color:var(--accent); font-size:.82rem; font-weight:700; letter-spacing:.12em; text-transform:uppercase; }
+    h1 { margin:.35rem 0 1rem; font-size:clamp(2.2rem,6vw,3.8rem); line-height:1.1; letter-spacing:-.04em; }
+    h2 { margin:2.5rem 0 .75rem; font-size:1.45rem; }
+    p { color:var(--muted); }
+    .lead { max-width:720px; font-size:1.15rem; }
+    .actions { display:flex; flex-wrap:wrap; gap:12px; margin:28px 0 18px; }
+    .button { display:inline-block; padding:11px 17px; border:1px solid var(--line); border-radius:9px; color:var(--text); text-decoration:none; font-weight:650; }
+    .button.primary { background:var(--accent); border-color:var(--accent); color:#171326; }
+    .panel { margin-top:28px; padding:20px 22px; border:1px solid var(--line); border-radius:12px; background:var(--panel); }
+    ul { padding-left:1.25rem; color:var(--muted); }
+    li { margin:.45rem 0; }
+    a { color:#b9adff; }
+    .links { display:flex; flex-wrap:wrap; gap:16px; margin-top:1rem; }
+    footer { margin-top:52px; padding-top:20px; border-top:1px solid var(--line); color:var(--muted); font-size:.9rem; }
+    @media (max-width:600px) { main { padding-top:42px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="eyebrow">Independent open-source project</div>
+    <h1>OVLS</h1>
+    <p class="lead"><strong>Linux Support for Official Vortex.</strong> OVLS adds SteamOS/Linux integration that helps run the official Windows version of Vortex Mod Manager through Proton.</p>
+
+    <div class="actions">
+      <a class="button primary" href="https://github.com/Dimonchik-UA/Vortex-Linux-Support/releases/latest">Download latest release</a>
+      <a class="button" href="https://github.com/Dimonchik-UA/Vortex-Linux-Support">View source on GitHub</a>
+    </div>
+
+    <section class="panel">
+      <h2>What OVLS provides</h2>
+      <ul>
+        <li>Launches the official Vortex application through the Proton tool selected for its Steam prefix.</li>
+        <li>Integrates <code>nxm://</code> links, so Nexus Mods download links can open in Vortex.</li>
+        <li>Installs a separate Vortex Extension for Linux-related staging-folder support.</li>
+        <li>Includes OVLS Manager for installation, updates, verification, prefix selection and removal.</li>
+      </ul>
+      <p>OVLS is a separate compatibility layer. It does not modify the official Vortex application files or replace Vortex. It installs and manages its own Extension and desktop integration.</p>
+    </section>
+
+    <h2>Compatibility</h2>
+    <p>Testing has been performed on <strong>SteamOS 3.x in Desktop Mode (KDE Plasma)</strong>. DW-Proton Latest and Proton-GE Latest worked normally in the tests and are recommended, but are not required. Proton 11.0, Hotfix and Experimental showed window-display and cursor-position issues in testing.</p>
+    <p>SteamOS Game Mode has not been tested. OVLS does not guarantee compatibility with every game or every future version of Vortex, SteamOS or Proton. Review the limitations before installing.</p>
+
+    <h2>Installation</h2>
+    <ol>
+      <li>Download <code>OVLS-Installer.tar.gz</code> and <code>SHA256SUMS</code> from the <a href="https://github.com/Dimonchik-UA/Vortex-Linux-Support/releases/latest">latest GitHub release</a>.</li>
+      <li>Verify the archive using <code>sha256sum -c SHA256SUMS</code>.</li>
+      <li>Extract the archive and open the <code>OVLS Installer</code> folder.</li>
+      <li>Run <code>bash install.sh</code> and choose <strong>Install / Update</strong>.</li>
+    </ol>
+    <p>See the full <a href="user/installation.md">installation instructions</a> for requirements and details.</p>
+
+    <h2>Documentation and project</h2>
+    <div class="links">
+      <a href="user/installation.md">Installation</a>
+      <a href="user/usage.md">Usage</a>
+      <a href="user/environment.md">Supported environment</a>
+      <a href="user/nxm.md">NXM integration</a>
+      <a href="user/limitations.md">Known limitations</a>
+      <a href="https://github.com/Dimonchik-UA/Vortex-Linux-Support/issues">Report an issue</a>
+      <a href="https://github.com/Dimonchik-UA/Vortex-Linux-Support/blob/main/LICENSE">MIT License</a>
+    </div>
+
+    <footer>
+      OVLS is an independent project and is not developed by, affiliated with, or endorsed by Nexus Mods or the official Vortex team.
+      <br>Copyright © 2026 Dimonchik-UA. OVLS source code is licensed under the MIT License.
+    </footer>
+  </main>
+</body>
+</html>

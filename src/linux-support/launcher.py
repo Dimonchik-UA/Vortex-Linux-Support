@@ -28,7 +28,7 @@ import tempfiles
 
 CONFIG_FILE = "config.json"
 VORTEX_EXE_REL = Path("pfx") / "drive_c" / "Program Files" / "Vortex" / "Vortex.exe"
-TITLE = "Vortex"
+TITLE = "OVLS"
 
 
 def config_path():
@@ -107,7 +107,7 @@ def show_message(message, kind="error"):
     if os.path.basename(tool).startswith("zenity"):
         _run_dialog(tool, [f"--{kind}", f"--title={TITLE}", f"--text={message}"])
     else:
-        _run_dialog(tool, [f"--{kind}", message])
+        _run_dialog(tool, ["--title", TITLE, f"--{kind}", message])
 
 
 def show_info(message):
@@ -118,7 +118,7 @@ def show_info(message):
     if os.path.basename(tool).startswith("zenity"):
         _run_dialog(tool, ["--info", f"--title={TITLE}", f"--text={message}"])
     else:
-        _run_dialog(tool, ["--msgbox", message])
+        _run_dialog(tool, ["--title", TITLE, "--msgbox", message])
 
 
 def show_text_file(path):
@@ -143,7 +143,7 @@ def show_text_file(path):
             ],
         )
     else:
-        _run_dialog(tool, ["--textbox", str(source), "900", "700"])
+        _run_dialog(tool, ["--title", TITLE, "--textbox", str(source), "900", "700"])
 
 
 def confirm(message):
@@ -154,7 +154,7 @@ def confirm(message):
     if os.path.basename(tool).startswith("zenity"):
         result = _run_dialog(tool, ["--question", f"--title={TITLE}", f"--text={message}"])
     else:
-        result = _run_dialog(tool, ["--warningyesno", message])
+        result = _run_dialog(tool, ["--title", TITLE, "--warningyesno", message])
     return bool(result is not None and result.returncode == 0)
 
 

@@ -458,9 +458,9 @@ class StandaloneUpdaterFlowTest(unittest.TestCase):
 
         core_file = pkg_root / "ovls" / "core.py"
         core_text = core_file.read_text(encoding="utf-8")
-        self.assertIn('VERSION = "0.4.0"', core_text)
+        self.assertIn('VERSION = "0.5.0"', core_text)
         core_file.write_text(
-            core_text.replace('VERSION = "0.4.0"', 'VERSION = "0.3.1"'),
+            core_text.replace('VERSION = "0.5.0"', 'VERSION = "0.3.1"'),
             encoding="utf-8",
         )
         updater.validate_package_root(pkg_root, expected_version="0.3.1")

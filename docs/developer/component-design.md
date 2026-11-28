@@ -9,7 +9,7 @@ OVLS consists of two main parts:
 1. **External Linux Support** — Python code that runs outside Vortex.
 2. **Vortex Extension** — JavaScript code loaded inside Vortex.
 
-The current source layout uses `src/linux-support/` and `src/extension/`; the standalone installer repackages them as `ovls/` with the Extension in `ovls/extension/`. Historical `Development/Linux_Support/` and `Development/Phase9_JSON_IPC/extension/` paths are legacy fallbacks only: they are a frozen internal snapshot and are not a source for publication.
+The current source layout uses `src/linux-support/` and `src/extension/`; the standalone installer repackages them as `ovls/` with the Extension in `ovls/extension/`. `Development/Linux_Support/` and `Development/Phase9_JSON_IPC/extension/` belong to a frozen internal snapshot kept only as a compatibility fallback for old local checkouts. They are not part of this repository, are not a source for publication, and are never used when the current repository layout is present.
 
 ## Linux Support Components
 
@@ -38,7 +38,7 @@ Desktop-mode launcher: discovers Proton prefix, locates Vortex.exe, launches Vor
 Path resolution: determines source tree and extension tree locations for both project checkout and standalone package layouts.
 
 ### `manager.py`
-Graphical manager (kdialog/zenity): Install/Update, Verify, Uninstall, Change prefix actions.
+Graphical manager (kdialog/zenity): Install / Update, Select Vortex prefix (pfx), Verify, Paths & Folders, Uninstall actions.
 
 ### `ovls.py`
 Command-line entry point: subcommands for status, discover, inspect-prefix, launch, nxm, launcher, manager, shortcuts, install-extension, remove-extension, install, verify, uninstall, package, check-fs, and diagnostics. The former `ipc` subcommand and its `ping`/`get-state`/`ipc-status` aliases were removed in OVLS 0.4.0.
@@ -80,7 +80,7 @@ Extension logic: initializes the extension, detects the deployment-failure notif
 ## Installer Components
 
 ### `install.sh`
-Entry point shell script: locates `ovls.py` in the standalone/package layout (`ovls/ovls.py`) or the repository checkout (`src/linux-support/ovls.py`), with a legacy fallback to `Development/Linux_Support/ovls.py` (when present), and delegates to `package.py` subcommands.
+Entry point shell script: locates `ovls.py` in the standalone/package layout (`ovls/ovls.py`) or the current repository checkout (`src/linux-support/ovls.py`), then falls back to `Development/Linux_Support/ovls.py` only in a legacy local checkout outside this repository, and delegates to `package.py` subcommands. That fallback is retained solely so old local checkouts keep working; it does not make `Development/` an active or published source.
 
 ### `OVLS Installer.desktop`
 Desktop shortcut that launches `install.sh`.

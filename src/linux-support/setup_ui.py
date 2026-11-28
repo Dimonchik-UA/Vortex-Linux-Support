@@ -19,21 +19,24 @@ modified by this window.
 """
 
 import os
+import re
 import sys
+import tempfile
 from pathlib import Path
 
 import installer
 import launcher
 import layout
 import package
+import updater
 
-TITLE = "OVLS Installer"
+TITLE = "OVLS"
 
 ACTIONS = [
-    ("install", "Install / Update"),
-    ("verify", "Verify"),
-    ("help", "Help"),
-    ("uninstall", "Uninstall"),
+    ("install", "🔄 Install / Update"),
+    ("verify", "🩺 Verify"),
+    ("help", "❓ Help"),
+    ("uninstall", "🗑️ Uninstall"),
 ]
 
 
@@ -74,7 +77,7 @@ def choose_prefix(candidates, steam_root=None):
         for candidate, label in zip(candidates, labels):
             arguments.extend([str(candidate), label])
     else:
-        arguments = ["--menu", question]
+        arguments = ["--title", TITLE, "--menu", question]
         for candidate, label in zip(candidates, labels):
             arguments.extend([str(candidate), label])
     result = launcher._run_dialog(tool, arguments)
@@ -100,7 +103,7 @@ def choose_action():
         for key, label in ACTIONS:
             arguments.extend([key, label])
     else:
-        arguments = ["--menu", "OVLS Linux Support"]
+        arguments = ["--title", TITLE, "--menu", "OVLS Linux Support"]
         for key, label in ACTIONS:
             arguments.extend([key, label])
     result = launcher._run_dialog(tool, arguments)
@@ -118,8 +121,82 @@ def readme_path():
     return layout.ROOT / package.README_NAME
 
 
+_TABLE_ROW_RE = re.compile(r"^\s*\|.*\|\s*$")
+_TABLE_DIVIDER_CELL_RE = re.compile(r"^:?-{3,}:?$")
+_MD_EMPHASIS_RE = re.compile(r"\*\*(.*?)\*\*|`(.*?)`")
+
+
+def _table_cells(line):
+    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+
+def _plain_cell(cell):
+    return _MD_EMPHASIS_RE.sub(lambda match: match.group(1) or match.group(2), cell)
+
+
+def _is_table_divider(line):
+    return bool(_table_cells(line)) and all(
+        _TABLE_DIVIDER_CELL_RE.match(cell) for cell in _table_cells(line)
+    )
+
+
+def readable_markdown(text):
+    """Turn Markdown tables into labelled records for plain-text viewers.
+
+    GitHub keeps the original Markdown; only the text sent to kdialog/zenity is
+    converted.  Labels replace pipes and divider rows, so the result stays
+    readable even when the dialog uses a proportional font.
+    """
+    lines = text.splitlines()
+    output = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        if not (_TABLE_ROW_RE.match(line) and index + 1 < len(lines)
+                and _TABLE_ROW_RE.match(lines[index + 1])
+                and _is_table_divider(lines[index + 1])):
+            output.append(line)
+            index += 1
+            continue
+        headers = [_plain_cell(cell) for cell in _table_cells(line)]
+        index += 2  # header and Markdown divider row
+        records = []
+        while index < len(lines) and _TABLE_ROW_RE.match(lines[index]):
+            cells = [_plain_cell(cell) for cell in _table_cells(lines[index])]
+            entries = [
+                f"{header}: {cell}"
+                for header, cell in zip(headers, cells)
+                if cell
+            ]
+            if entries:
+                records.append("\n".join(entries))
+            index += 1
+        if not records:
+            continue
+        if output and output[-1] != "":
+            output.append("")
+        for position, record in enumerate(records):
+            if position:
+                output.append("")
+            output.append(record)
+        if index < len(lines) and lines[index].strip():
+            output.append("")
+    return "\n".join(output) + "\n"
+
+
 def action_help():
-    launcher.show_text_file(readme_path())
+    source = readme_path()
+    if not source.is_file():
+        launcher.show_text_file(source)  # preserves the existing error dialog
+        return
+    rendered = readable_markdown(source.read_text(encoding="utf-8"))
+    descriptor, temp_name = tempfile.mkstemp(prefix="ovls-help-", suffix=".txt")
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(rendered)
+        launcher.show_text_file(Path(temp_name))
+    finally:
+        Path(temp_name).unlink(missing_ok=True)
 
 
 def _require_prefix():
@@ -234,6 +311,7 @@ def action_verify():
         "Verification completed: " + ("OK" if ok else "needs attention"),
         "",
         f"Prefix: {result.get('prefix') or prefix}",
+        f"OVLS version: {updater.current_local_version() or 'unknown'}",
         f"Code copy: {result['copy']['status']}",
         f"Shortcuts: {result['shortcuts']['status']}",
     ]

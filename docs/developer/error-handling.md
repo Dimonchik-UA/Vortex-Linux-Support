@@ -1,6 +1,6 @@
 # Error Handling
 
-OVLS documents error categories for its external component and Vortex Extension. The Extension reports staging-fix problems through Vortex notifications and logs. There is no IPC error channel in OVLS 0.4.0: the former Stage 9 IPC error codes and ACK/dedup recovery were removed with the IPC channel.
+OVLS documents error categories for its external component and Vortex Extension. The Extension reports staging-fix problems through Vortex notifications and logs. Since OVLS 0.4.0 there is no IPC error channel: the former Stage 9 IPC error codes and ACK/dedup recovery were removed with the IPC channel.
 
 ## Error Categories
 
@@ -25,7 +25,7 @@ Component state recovery is not implemented. The Extension re-evaluates the curr
 ## Logging
 
 OVLS writes three log files of its own. Each is limited to a 1 MB current file and two rotated copies (`.1`, `.2`), so it never exceeds about 3 MB. On rollover the current file becomes `.1`, `.1` becomes `.2`, and the previous `.2` is deleted; older output is discarded automatically rather than kept as extra history:
-- `~/.local/share/ovls/ovls/ovls.log` — package manager log (rotated; no records are written at present)
+- `$XDG_DATA_HOME/ovls/ovls/ovls.log` (default `~/.local/share/ovls/ovls/ovls.log` when `XDG_DATA_HOME` is unset) — package manager log (rotated; no records are written at present)
 - `$XDG_STATE_HOME/ovls/launch.log` — Vortex launch and Proton output, written by the launcher
 - `$XDG_DATA_HOME/ovls/nxm.log` — Vortex output for `nxm://` links
 

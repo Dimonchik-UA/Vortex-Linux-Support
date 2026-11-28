@@ -89,7 +89,7 @@ Prefix locations used automatically, in order:
 3. `~/Windows/prefix`
 4. Every `<Steam root>/steamapps/compatdata/<appid>` prefix that actually contains Vortex, including roots in additional Steam libraries that are present and mounted. The appid is assigned by Steam and differs between users.
 
-**Install / Update** uses this search: if exactly one Vortex is found, its prefix is used automatically; if several are found, you get a list to choose from; if none is found, OVLS says so and opens a directory chooser. The chosen path is validated before installation. **Change prefix** is separate: it always opens the directory chooser and never substitutes an automatically found prefix. Cancelling it leaves the saved configuration unchanged.
+**Install / Update** uses this search: if exactly one Vortex is found, its prefix is used automatically; if several are found, you get a list to choose from; if none is found, OVLS says so and opens a directory chooser. The chosen path is validated before installation. **Select Vortex prefix (pfx)** is separate: it always opens the directory chooser and never replaces your choice with an automatically found prefix (a found prefix is only the chooser's starting folder). Cancelling it leaves the saved configuration unchanged.
 
 Both `pfx/drive_c/users/` and `Vortex.exe` are required: a directory that only has `users/` is not treated as a Vortex installation. Additional Steam libraries are scanned when they are present and mounted; an unmounted library cannot be searched until its filesystem is available. DW-Proton and GE-Proton are recommended for running Vortex, but they are not required and are not used to detect the prefix.
 

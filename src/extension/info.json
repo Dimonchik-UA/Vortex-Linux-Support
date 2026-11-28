@@ -1,7 +1,7 @@
 {
   "id": "ovls-json-ipc-v2",
   "name": "OVLS Linux Support",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "author": "OVLS",
   "description": "Staging folder fix and Vortex integration for OVLS on SteamOS/Linux"
 }

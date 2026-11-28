@@ -2,6 +2,27 @@
 
 This file records user-facing changes to OVLS. The newest version is listed first.
 
+## 0.5.0
+
+**Status:** released 2026-11-28 as `v0.5.0`.
+
+### Added
+
+- A four-level OVLS Manager menu: `Paths & Folders`, `Games & Mods folders`, a list of discovered Vortex games, and per-game folder actions. Game names come from reliable Vortex data; technical game IDs are not shown.
+- A read-only `state.v2` reader. Manager uses it to show actual Vortex Downloads, game and staging folder locations without starting or modifying Vortex.
+- A `Help` action in the installer, section subtitles in Manager submenus, and the installed `OVLS version` line in `Verify`.
+
+### Changed
+
+- `Mod Downloads Folder` opens the actual Vortex Downloads path. When no custom path is configured, it uses the standard Vortex `<userData>/downloads` path; invalid paths are reported instead of being replaced by a guess.
+- `Open mods staging folder` uses the explicit Vortex setting when present. Without it, OVLS checks the standard `<userData>/<gameId>/mods` folder and its instance marker before opening the folder.
+- Dialog titles are unified under `OVLS`; installer and Manager menus and `Verify` output are formatted consistently.
+- User documentation is updated for the new menus, diagnostics and log paths.
+
+### Fixed
+
+- `Verify` now lists the prefix, OVLS version, code copy, shortcuts, Extension, Vortex uninstall key and NXM handler. The Steam library line remains available in Manager only; the installer does not claim to check it.
+
 ## 0.4.0
 
 **Status:** released 2026-11-27 as `v0.4.0`.
@@ -30,10 +51,6 @@ Removes the experimental JSON IPC channel and stops uncontrolled log/backup grow
 - Install, update and uninstall remove leftover data of the former IPC channel (`OVLS_IPC_V2` in the Vortex folder of the prefix). Other files in that folder are kept.
 - Update removes the directories left empty after files are removed from the package.
 - The duplicated `_zenity` and `_shortcut_notes` helpers in Manager are delegates to the single implementation in Setup UI.
-
-## Unreleased
-
-No unreleased changes.
 
 ## 0.3.0
 
@@ -117,7 +134,7 @@ Initial OVLS version: an independent Linux support layer for the official Window
 - Hybrid architecture: an external Linux component for SteamOS, Proton, prefix, filesystem, and NXM tasks, plus a small Vortex Extension for operations that require Vortex context, connected through file-based JSON IPC.
 - Desktop integration: a `Vortex` shortcut on the desktop and in the applications menu, an `OVLS Manager` shortcut in the applications menu, and an `nxm://` handler so “Download with Vortex” links open in the official Vortex.
 - Launcher with automatic Proton selection: Proton-GE Latest when available, then Proton 11.0 and other installed Proton versions.
-- OVLS Manager with Install / Update, Verify, Uninstall, and Change prefix actions, result and error messages, and a guard that requires Vortex to be closed before changing the prefix.
+- OVLS Manager with Install / Update, Verify, Uninstall, and Change prefix actions, result and error messages, and a guard that requires Vortex in the currently configured prefix to be closed before changing the prefix (the label later became Select Vortex prefix (pfx)).
 - Support for the normal Vortex mod workflow, including installing mods and deploying them with Symlink Deployment when staging is on the same Wine disk as the game.
 - Automatic staging-folder setup for games that require staging on the same Wine disk, plus fixes for Vortex game detection and the missing uninstall-key warning in the prefix.
 - Standalone `OVLS Installer` package with a graphical installer (`install.sh` / `OVLS Installer.desktop`) and `install`, `update`, `verify`, and `uninstall` command-line operations, with backups on update and manifest-based integrity checks.

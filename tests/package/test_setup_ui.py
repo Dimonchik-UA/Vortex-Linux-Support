@@ -17,6 +17,7 @@ PROJECT = HERE.parents[1]
 sys.path.insert(0, str(PROJECT / "src" / "linux-support"))
 sys.path.insert(0, str(PROJECT / "scripts"))
 
+import manager  # noqa: E402
 import package  # noqa: E402
 import proton  # noqa: E402
 import setup_ui  # noqa: E402
@@ -387,12 +388,86 @@ class SetupUiTest(unittest.TestCase):
         self.assertIn("needs attention", text)
         self.assertIn("copy_missing", text)
 
-    def test_help_shows_packaged_readme(self):
-        with mock.patch.object(setup_ui.launcher, "show_text_file") as show:
+    def test_verify_shows_exactly_one_local_version_line(self):
+        result = {
+            "status": "ok",
+            "prefix": str(self.prefix),
+            "copy": {"status": "unchanged"},
+            "shortcuts": {"status": "ok", "files": {}},
+        }
+        with mock.patch.object(setup_ui.package, "verify", return_value=result), \
+                mock.patch.object(
+                    setup_ui.updater, "current_local_version", return_value="0.5.0"
+                ) as version:
+            setup_ui.action_verify()
+
+        version.assert_called_once_with()
+        lines = self.show_info.call_args[0][0].splitlines()
+        self.assertEqual(
+            [line for line in lines if line.startswith("OVLS version:")],
+            ["OVLS version: 0.5.0"],
+        )
+        self.assertEqual(
+            lines[:6],
+            [
+                "Verification completed: OK",
+                "",
+                f"Prefix: {self.prefix}",
+                "OVLS version: 0.5.0",
+                "Code copy: unchanged",
+                "Shortcuts: ok",
+            ],
+        )
+
+    def test_verify_format_matches_manager(self):
+        result = {
+            "status": "ok",
+            "prefix": str(self.prefix),
+            "copy": {"status": "unchanged"},
+            "shortcuts": {"status": "ok", "files": {}},
+            "installation": {
+                "extension": {"status": "installed"},
+                "vortex_registry": {"status": "ok"},
+                "steam_library": {"config_present": True},
+                "nxm_handler": {"status": "ok"},
+            },
+        }
+        with mock.patch.object(setup_ui.package, "verify", return_value=result), \
+                mock.patch.object(
+                    setup_ui.updater, "current_local_version", return_value="0.5.0"
+                ):
+            setup_ui.action_verify()
+            installer_lines = self.show_info.call_args[0][0].splitlines()
+            self.show_info.reset_mock()
+            manager.action_verify()
+            manager_lines = self.show_info.call_args[0][0].splitlines()
+
+        self.assertEqual(installer_lines[:6], manager_lines[:6])
+        self.assertEqual(
+            [line for line in manager_lines if line not in installer_lines],
+            [line for line in manager_lines if line.startswith("Steam library:")],
+        )
+        self.assertTrue(all(line in manager_lines for line in installer_lines))
+
+    def test_help_shows_rendered_packaged_readme(self):
+        captured = {}
+
+        def capture(path):
+            captured["path"] = Path(path)
+            captured["text"] = Path(path).read_text(encoding="utf-8")
+
+        with mock.patch.object(setup_ui.launcher, "show_text_file", side_effect=capture) as show:
             setup_ui.action_help()
         show.assert_called_once()
-        self.assertEqual(show.call_args[0][0], PROJECT / "README.md")
         self.assertTrue((PROJECT / "README.md").is_file())
+        self.assertNotEqual(captured["path"], PROJECT / "README.md")
+        self.assertFalse(captured["path"].exists())  # temporary viewer copy
+        text = captured["text"]
+        self.assertIn("Category: Window rendering / mouse", text)
+        self.assertIn("Category: Controller", text)
+        self.assertIn("R2/L2 work via SteamOS input handling.", text)
+        self.assertNotIn("|---", text)
+        self.assertFalse(any(line.lstrip().startswith("|") for line in text.splitlines()))
 
     def test_help_reports_missing_readme(self):
         with mock.patch.object(
@@ -428,8 +503,9 @@ class ShowTextFileTest(unittest.TestCase):
                 mock.patch.object(setup_ui.launcher, "_run_dialog") as run:
             setup_ui.launcher.show_text_file(PROJECT / "README.md")
         arguments = run.call_args[0][1]
-        self.assertEqual(arguments[0], "--textbox")
-        self.assertEqual(arguments[1], str(PROJECT / "README.md"))
+        self.assertEqual(arguments[:2], ["--title", "OVLS"])
+        self.assertEqual(arguments[2], "--textbox")
+        self.assertEqual(arguments[3], str(PROJECT / "README.md"))
 
     def test_zenity_uses_text_info(self):
         with mock.patch.object(setup_ui.launcher, "_dialog_tool", return_value="zenity"), \
@@ -437,12 +513,152 @@ class ShowTextFileTest(unittest.TestCase):
             setup_ui.launcher.show_text_file(PROJECT / "README.md")
         arguments = run.call_args[0][1]
         self.assertEqual(arguments[0], "--text-info")
+        self.assertIn("--title=OVLS", arguments)
         self.assertIn(f"--filename={PROJECT / 'README.md'}", arguments)
 
     def test_missing_file_reports_message(self):
         with mock.patch.object(setup_ui.launcher, "show_message") as message:
             setup_ui.launcher.show_text_file(Path("/nonexistent/README.md"))
         self.assertIn("File not found", message.call_args[0][0])
+
+
+class ReadableMarkdownTest(unittest.TestCase):
+    """Help must show readable text, not raw Markdown table syntax."""
+
+    TABLE = (
+        "| Name | Detail |\n"
+        "|:---|:---|\n"
+        "| short | okay |\n"
+        "| **very long label** | a long sentence with enough text to show "
+        "that labels stay attached |\n"
+    )
+
+    def test_short_and_long_cells_keep_their_labels(self):
+        text = setup_ui.readable_markdown("Before\n\n" + self.TABLE + "\nAfter\n")
+        self.assertIn("Name: short", text)
+        self.assertIn("Detail: okay", text)
+        self.assertIn("Name: very long label", text)
+        self.assertIn(
+            "Detail: a long sentence with enough text to show that labels stay attached",
+            text,
+        )
+        self.assertIn("Before", text)
+        self.assertIn("After", text)
+        self.assertFalse(any(line.lstrip().startswith("|") for line in text.splitlines()))
+        self.assertNotIn("---", text)
+
+    def test_help_uses_rendered_file_for_both_dialogs(self):
+        for tool in ("kdialog", "zenity"):
+            with self.subTest(tool=tool):
+                captured = {}
+
+                def capture(_tool, arguments):
+                    if tool == "kdialog":
+                        self.assertEqual(arguments[2], "--textbox")
+                        name = arguments[3]
+                    else:
+                        self.assertEqual(arguments[0], "--text-info")
+                        name = next(
+                            argument.split("=", 1)[1]
+                            for argument in arguments
+                            if argument.startswith("--filename=")
+                        )
+                    captured["path"] = Path(name)
+                    captured["text"] = captured["path"].read_text(encoding="utf-8")
+
+                with mock.patch.object(
+                    setup_ui.launcher, "_dialog_tool", return_value=tool
+                ), mock.patch.object(
+                    setup_ui.launcher, "_run_dialog", side_effect=capture
+                ):
+                    setup_ui.action_help()
+
+                self.assertFalse(captured["path"].exists())
+                self.assertIn("Category: Window rendering / mouse", captured["text"])
+                self.assertNotIn("|---", captured["text"])
+
+
+class DialogTitleTest(unittest.TestCase):
+    """OVLS branding for every dialog shared by Manager and Installer."""
+
+    @staticmethod
+    def _argv(tool, function, *args, **kwargs):
+        with mock.patch.object(
+            setup_ui.launcher, "_dialog_tool", return_value=tool
+        ), mock.patch.object(
+            setup_ui.launcher,
+            "_run_dialog",
+            return_value=mock.Mock(returncode=0, stdout=""),
+        ) as run:
+            function(*args, **kwargs)
+        return run.call_args[0][1]
+
+    def test_title_constants_are_ovls(self):
+        self.assertEqual(setup_ui.launcher.TITLE, "OVLS")
+        self.assertEqual(setup_ui.TITLE, "OVLS")
+
+    def test_kdialog_messages_use_ovls_title(self):
+        expected = (
+            ("show_message", ["--title", "OVLS", "--error", "boom"]),
+            ("show_info", ["--title", "OVLS", "--msgbox", "boom"]),
+            ("confirm", ["--title", "OVLS", "--warningyesno", "boom"]),
+        )
+        for name, arguments in expected:
+            with self.subTest(name=name):
+                function = getattr(setup_ui.launcher, name)
+                self.assertEqual(self._argv("kdialog", function, "boom"), arguments)
+
+    def test_zenity_messages_use_ovls_title(self):
+        expected = (
+            ("show_message", ["--error", "--title=OVLS", "--text=boom"]),
+            ("show_info", ["--info", "--title=OVLS", "--text=boom"]),
+            ("confirm", ["--question", "--title=OVLS", "--text=boom"]),
+        )
+        for name, arguments in expected:
+            with self.subTest(name=name):
+                function = getattr(setup_ui.launcher, name)
+                self.assertEqual(self._argv("zenity", function, "boom"), arguments)
+
+    def test_directory_chooser_keeps_its_informative_title(self):
+        prompt = "Select the Vortex prefix directory (with pfx/drive_c/users/ and Vortex.exe)"
+        self.assertEqual(
+            self._argv("kdialog", setup_ui.launcher.choose_directory, "/tmp", prompt),
+            ["--getexistingdirectory", "/tmp", "--title", prompt],
+        )
+        self.assertEqual(
+            self._argv("zenity", setup_ui.launcher.choose_directory, "/tmp", prompt),
+            ["--file-selection", "--directory", f"--title={prompt}", "--filename=/tmp/"],
+        )
+
+    def test_installer_menu_uses_ovls_title_and_keeps_caption(self):
+        self.assertEqual(
+            self._argv("kdialog", setup_ui.choose_action)[:4],
+            ["--title", "OVLS", "--menu", "OVLS Linux Support"],
+        )
+        arguments = self._argv("zenity", setup_ui.choose_action)
+        self.assertEqual(
+            arguments[:5],
+            ["--list", "--title=OVLS", "--column=ID", "--column=Action", "--hide-column=1"],
+        )
+
+    def test_installer_menu_labels_match_manager_style_and_ids(self):
+        expected = [
+            ("install", "🔄 Install / Update"),
+            ("verify", "🩺 Verify"),
+            ("help", "❓ Help"),
+            ("uninstall", "🗑️ Uninstall"),
+        ]
+        self.assertEqual(setup_ui.ACTIONS, expected)
+        for tool in ("kdialog", "zenity"):
+            with self.subTest(tool=tool):
+                arguments = self._argv(tool, setup_ui.choose_action)
+                self.assertEqual(
+                    [arguments[index] for index in range(len(arguments))
+                     if arguments[index] in {key for key, _ in expected}],
+                    [key for key, _ in expected],
+                )
+                for _, label in expected:
+                    self.assertIn(label, arguments)
 
 
 DESKTOP_ENTRY = PROJECT / "installer" / "OVLS Installer.desktop"

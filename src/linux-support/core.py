@@ -4,7 +4,7 @@ import logging.handlers
 import os
 
 APP_NAME = "OVLS Linux Support"
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 
 # Log rotation constants
 LOG_MAX_BYTES = 1_000_000  # 1 MB

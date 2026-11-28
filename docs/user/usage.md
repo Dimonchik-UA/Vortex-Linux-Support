@@ -17,16 +17,18 @@ You do not need to pass `--proton` manually: OVLS uses the Proton selected in St
 OVLS Manager is a graphical tool (using kdialog or zenity) for managing OVLS. You can open it from:
 
 - The applications menu (look for **OVLS Manager**, in the `Utility;` category; Comment: `OVLS Manager (Official Vortex Linux Support)`)
-- Running `bash install.sh` from the `OVLS Installer` folder (no arguments opens the graphical menu)
 
-OVLS Manager provides four actions:
+Running `bash install.sh` from the `OVLS Installer` folder without arguments opens the standalone **OVLS Installer** menu, not OVLS Manager. The two graphical tools are separate; see [Installation](installation.md).
+
+OVLS Manager provides five actions:
 
 | Action | What it does |
 |--------|--------------|
 | **Install / Update** | Installs or updates the OVLS Extension in the selected Vortex prefix and registers the NXM handler and desktop shortcuts in your user XDG directories. |
-| **Verify** | Checks that the installed copy, Extension, NXM handler, and shortcuts are all present and correct. |
+| **Select Vortex prefix (pfx)** | Opens a manual directory chooser to switch the Proton prefix OVLS uses. If a prefix is already configured, Vortex in that prefix must be closed first. |
+| **Verify** | Checks that the installed copy, Extension, NXM handler, shortcuts, and Steam library configuration are all present and correct, and shows the installed OVLS version. |
+| **Paths & Folders** | Opens the folder submenu with the prefix folder, discovered games and their Mods folders, and Mod Downloads Folder. |
 | **Uninstall** | Removes OVLS components (Extension, NXM handler, shortcuts). Vortex, mods, prefix, and user settings are not touched. |
-| **Change prefix** | Switches the Proton prefix OVLS uses. Requires Vortex to be closed first. |
 
 ## Using OVLS Manager
 
@@ -50,11 +52,52 @@ If Vortex is running, Manager will ask you to close it first.
 
 Use this action to check the health of your OVLS installation. Verify checks:
 
-- The installed OVLS copy (all manifest files present and unchanged)
+- The selected prefix
+- The installed OVLS copy (all manifest files present and unchanged) and its version
 - Desktop shortcuts
 - The NXM handler registration
 - The Vortex Extension inside your prefix
-- Steam library configuration
+- The Vortex uninstall key
+- Steam library configuration (shown in Manager only; the installer's Verify does not show it)
+
+The result includes an `OVLS version:` line with the version of the installed OVLS copy. If no version is available, it shows `OVLS version: unknown`.
+
+### Paths & Folders
+
+This menu contains three actions and `⬅️ Back`:
+
+| Action | What it does |
+|--------|--------------|
+| **Open Vortex prefix folder** | Opens the `pfx` folder of the currently selected Vortex prefix in your file manager. |
+| **Games & Mods folders** | Opens the discovered-game list and the per-game folder submenu. See below. |
+| **Mod Downloads Folder** | Opens the Vortex mod downloads folder directly in your file manager. No chooser or information dialog is shown. See below. |
+
+The Games & Mods folders and Mod Downloads Folder actions read only the Vortex state (`state.v2`) of the currently selected prefix through the read-only OVLS reader. They never change the prefix, never write Vortex settings, and do not use `settings.json`. If no unique prefix is selected, or `state.v2` cannot be read, Manager shows an error and stays in the same menu.
+
+`⬅️ Back` and Cancel move up exactly one level: game submenu → game list → `Paths & Folders` → main menu. Cancel in the main menu closes OVLS Manager. Opening a folder does not change the current level.
+
+Submenus display a fixed, non-selectable label with the current section name (`Paths & Folders`, `Games & Mods folders`, or the selected game) above the items. The main menu has no label, and the window title stays `OVLS`.
+
+### Games & Mods folders
+
+OVLS reads the games Vortex has already discovered from `state.v2` in the current prefix. The game list shows one `🎮 <game name>` entry per game and `⬅️ Back`; technical game IDs are not shown. Game names come from the name Vortex stored for the discovered game, or from the matching game extension's `registerGame()`/`registerGameStub()` name. If Vortex has no reliable name, the entry is shown as `🎮 Игра без названия (N)` and still opens that game's folders. If no discovered games are present, it shows `Обнаруженные игры не найдены` and returns to `Paths & Folders`.
+
+Selecting a game opens a submenu with `🧩 Open mods staging folder`, `📁 Open game folder` and `⬅️ Back`:
+
+- **Open mods staging folder** opens the staging folder Vortex uses for this game. If Vortex has an explicit `settings.mods.installPath[gameId]`, that path is used exactly as before, including its error messages. Only when that setting is absent does Manager check Vortex's standard `<userData>/<gameId>/mods` folder. The standard folder is opened only if it exists, stays inside `userData`, and contains a regular `__vortex_staging_folder` JSON marker whose `game` and `instance` match the selected prefix's `state.v2`. This is not the `Mods` folder inside the game directory.
+- **Open game folder** opens the installed game folder from `settings.gameMode.discovered[gameId].path`, the same source Vortex uses for its Open Game Folder action.
+
+Both paths are converted from Windows form to a Linux host path, checked to be existing directories, and opened with `xdg-open`. An invalid explicit staging setting is never replaced by the standard path; a missing or unverifiable standard staging folder is reported as an error. No other defaults are substituted, and no Vortex file, marker, setting or mod is changed. If `xdg-open` fails, Manager shows a clear message.
+
+### Mod Downloads Folder
+
+OVLS reads `settings.downloads.path` from `state.v2` in the current selected prefix. Vortex template tokens are expanded before conversion to a Linux path:
+
+- `{USERDATA}` is the actual Windows `userData` path inside the selected Proton prefix.
+- `{USERNAME}` is the current desktop user name, determined dynamically; it is not a fixed `steamuser` value.
+- Relative and drive-relative values are resolved against that `userData` path, following Vortex behavior. Paths that leave the mapped drive are rejected.
+
+Manager opens the resolved folder directly in the file manager with `xdg-open`. No directory chooser and no `Downloads folder: ...` information dialog are shown; nothing is saved and Vortex settings are not changed. If the setting is missing, Manager opens Vortex's standard `<userData>/downloads` folder. If the setting is invalid, cannot be converted, or if the resulting directory does not exist, Manager shows a clear error, does not call `xdg-open` and does not substitute another path.
 
 ### Uninstall
 
@@ -73,11 +116,11 @@ Uninstall uses the saved valid prefix without asking again. If no valid prefix i
 
 After uninstalling, OVLS Manager closes because its installed copy is gone. To reinstall, run `bash install.sh install` from the `OVLS Installer` folder.
 
-### Change prefix
+### Select Vortex prefix (pfx)
 
-Use this action to switch OVLS to a different Proton prefix. It is separate from Install: it always opens a manual directory chooser (kdialog/zenity), not a list of automatically found prefixes, and never uses the result of the automatic search. It only changes the selected prefix; it does not install components there automatically. Requirements:
+Use this action to switch OVLS to a different Proton prefix. It is separate from Install: it always opens a manual directory chooser (kdialog/zenity), not a list of automatically found prefixes. A prefix found automatically is used only as the chooser's starting folder; it never replaces your manual choice. It only changes the selected prefix; it does not install components there automatically. Requirements:
 
-1. Vortex must be closed.
+1. If a prefix is already configured, Vortex in that prefix must be closed. The check is limited to that prefix; OVLS does not detect Vortex running from another prefix.
 2. The new prefix must contain `pfx/drive_c/users` (a valid Proton prefix).
 3. The prefix must contain `Vortex.exe` at `pfx/drive_c/Program Files/Vortex/Vortex.exe`.
 
@@ -111,7 +154,7 @@ A valid prefix must contain both `pfx/drive_c/users/` and `pfx/drive_c/Program F
 - **Several found:** the graphical Installer and Manager list the prefix paths, labelled with the detected Proton tool and storage type (`Internal storage`, `SD card`, or `Storage type unknown`), and install only into the one you select. Cancelling aborts the operation.
 - **None found:** OVLS says Vortex was not found, offers a directory chooser, and validates the folder you pick. The CLI requires `--prefix /path/to/compatdata`.
 
-**Change prefix** in the Manager is a separate action: it always opens the directory chooser, never substitutes an automatically found prefix, and leaves the saved configuration untouched if you cancel.
+**Select Vortex prefix (pfx)** in the Manager is a separate action: it always opens the directory chooser, never replaces your choice with an automatically found prefix (a found prefix is only the chooser's starting folder), and leaves the saved configuration untouched if you cancel.
 
 Prefixes in additional Steam libraries can be detected when those libraries are present and mounted. A temporarily unmounted library does not make an installed prefix invalid on disk, but Install / Update may not be able to rebuild its staging target until the library is mounted again; see [Staging folder](staging.md) and [Diagnostics](diagnostics.md).
 

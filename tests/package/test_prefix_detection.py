@@ -320,6 +320,8 @@ class PrefixDetectionTest(unittest.TestCase):
         self.assertEqual(
             run.call_args[0][1],
             [
+                "--title",
+                "OVLS",
                 "--menu",
                 "Several Vortex prefixes were found. Choose one:",
                 str(first), "Proton not detected — Storage type unknown",
@@ -688,6 +690,8 @@ class PrefixDisplayLabelTest(unittest.TestCase):
         self.assertEqual(
             run.call_args[0][1],
             [
+                "--title",
+                "OVLS",
                 "--menu",
                 "Several Vortex prefixes were found. Choose one:",
                 str(first), "Proton not detected — Storage type unknown",

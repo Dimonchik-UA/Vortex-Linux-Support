@@ -42,7 +42,7 @@ The OVLS Manager appears in the `Utility;` category of your application menu.
 2. Make sure the prefix is writable.
 3. Close Vortex before installing. The installer will refuse to proceed if Vortex is running.
 
-Install searches for real Vortex installations: the saved prefix, the legacy location `~/Windows/prefix`, and every `<Steam root>/steamapps/compatdata/<appid>` that contains both `pfx/drive_c/users/` and `pfx/drive_c/Program Files/Vortex/Vortex.exe`, including roots in additional Steam libraries that are present and mounted. One match is used automatically; several matches show a list to choose from; if none is found, the graphical installer opens a directory chooser and validates the folder you pick. You can always pass `--prefix /path/to/compatdata` explicitly. `Change prefix` in the Manager is separate and always opens the chooser.
+Install searches for real Vortex installations: the saved prefix, the legacy location `~/Windows/prefix`, and every `<Steam root>/steamapps/compatdata/<appid>` that contains both `pfx/drive_c/users/` and `pfx/drive_c/Program Files/Vortex/Vortex.exe`, including roots in additional Steam libraries that are present and mounted. One match is used automatically; several matches show a list to choose from; if none is found, the graphical installer opens a directory chooser and validates the folder you pick. You can always pass `--prefix /path/to/compatdata` explicitly. `Select Vortex prefix (pfx)` in the Manager is separate and always opens the chooser.
 
 ## Installation
 
@@ -81,7 +81,7 @@ Run:
 bash install.sh verify
 ```
 
-This checks the installed copy, extension, NXM handler, and shortcuts.
+This checks the selected prefix, the installed copy and its version, shortcuts, extension, Vortex uninstall key, and NXM handler. The separate OVLS Manager also shows the Steam library line.
 
 ## Uninstallation
 
